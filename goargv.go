@@ -329,9 +329,11 @@ func (arg *cliArg) formatTypeHint() string {
 }
 
 func (p *Parser) PrintSingleHelp(arg *cliArg) {
+	descWidth := 50
+
 	if arg.isPositional {
-		fmt.Printf("Positional argument:   <%s>\n", arg.displayName())
-		fmt.Printf("Mandatory:             %v\n", arg.required)
+		fmt.Printf("%-23s<%s>\n", "Positional argument:", arg.displayName())
+		fmt.Printf("%-23s%v\n", "Mandatory:", arg.required)
 	} else {
 		sh := "None"
 		if arg.shortFlag != "" {
@@ -341,17 +343,17 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 		if arg.longFlag != "" {
 			lng = arg.longFlag
 		}
-		fmt.Printf("Short flag:            %s\n", sh)
-		fmt.Printf("Long flag:             %s\n", lng)
+		fmt.Printf("%-23s%s\n", "Short flag:", sh)
+		fmt.Printf("%-23s%s\n", "Long flag:", lng)
 		valReq := arg.argType != TypeBool && arg.argType != TypeCount
-		fmt.Printf("Value required:        %v\n", valReq)
-		fmt.Printf("Mandatory:             %v\n", arg.required)
+		fmt.Printf("%-23s%v\n", "Value required:", valReq)
+		fmt.Printf("%-23s%v\n", "Mandatory:", arg.required)
 	}
 	if arg.envVar != "" {
-		fmt.Printf("Environment variable:  %s\n", arg.envVar)
+		fmt.Printf("%-23s%s\n", "Environment variable:", arg.envVar)
 	}
 	if arg.choices != "" {
-		fmt.Printf("Allowed choices:       [%s]\n", arg.choices)
+		fmt.Printf("%-23s[%s]\n", "Allowed choices:", arg.choices)
 		if len(arg.choiceHelps) > 0 {
 			maxCLen := 0
 			for _, ch := range arg.choiceHelps {
@@ -360,7 +362,8 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 				}
 			}
 			for _, ch := range arg.choiceHelps {
-				fmt.Printf("  %-*s : %s\n", maxCLen, ch.choice, ch.help)
+				prefix := fmt.Sprintf("  %-*s:", maxCLen, ch.choice)
+				printWrappedDesc(prefix, len(prefix), ch.help, descWidth)
 			}
 		}
 	}
@@ -368,7 +371,7 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 	if arg.help != "" {
 		help = arg.help
 	}
-	fmt.Printf("Description:           %s\n", help)
+	printWrappedDesc("Description:", 21, help, descWidth)
 }
 
 func printWrappedDesc(leftCol string, indent int, text string, descWidth int) {
