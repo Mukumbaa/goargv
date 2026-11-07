@@ -25,11 +25,8 @@ Go's built-in `flag` package is reliable but lacks many features expected in mod
 ## Installation
 
 ```bash
-go get github.com/yourusername/libargv
+go get github.com/Mukumbaa/libargv
 ```
-
-*(Replace `yourusername` with your actual GitHub username or repository path)*
-
 ---
 
 ## Quick Example
@@ -42,7 +39,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yourusername/libargv"
+	"github.com/Mukumbaa/libargv"
 )
 
 func main() {
