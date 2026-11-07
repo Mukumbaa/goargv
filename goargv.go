@@ -372,21 +372,28 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 }
 
 func printWrappedDesc(leftCol string, indent int, text string, descWidth int) {
-	if text == "" {
-		if leftCol != "" {
-			fmt.Println(leftCol)
+	leftLen := len(leftCol)
+	gutter := 2 
+
+	if leftLen > 0 {
+		fmt.Print(leftCol)
+		if leftLen < indent {
+			fmt.Printf("%*s", indent-leftLen+gutter, "")
+		} else {
+			fmt.Printf("%*s", gutter, "")
 		}
+	} else {
+		fmt.Printf("%*s", indent+gutter, "")
+	}
+
+	if text == "" {
+		fmt.Println()
 		return
 	}
 
-	if leftCol != "" {
-		if len(leftCol) >= indent {
-			fmt.Printf("%s\n%*s  ", leftCol, indent, "")
-		} else {
-			fmt.Printf("%-*s  ", indent, leftCol)
-		}
-	} else {
-		fmt.Printf("%*s  ", indent, "")
+	contIndent := indent + gutter
+	if leftLen > indent {
+		contIndent = leftLen + gutter
 	}
 
 	words := strings.Fields(text)
@@ -400,7 +407,7 @@ func printWrappedDesc(leftCol string, indent int, text string, descWidth int) {
 		}
 
 		if !firstWord && lineLen+needed > descWidth {
-			fmt.Printf("\n%*s  ", indent, "")
+			fmt.Printf("\n%*s", contIndent, "")
 			lineLen = 0
 			firstWord = true
 		}
@@ -499,10 +506,13 @@ func (p *Parser) PrintHelp() {
 
 		if len(a.choiceHelps) > 0 {
 			for _, ch := range a.choiceHelps {
-				prefix := fmt.Sprintf("  %s:", ch.choice)
-				choiceIndent := maxLen + len(prefix)
-				left := fmt.Sprintf("%*s%s", maxLen, "", prefix)
-				printWrappedDesc(left, choiceIndent, ch.help, descWidth-len(prefix))
+				prefix := fmt.Sprintf("%*s  %s:", maxLen, "", ch.choice)
+				choiceIndent := len(prefix)
+				helpWidth := descWidth - 6
+				if helpWidth < 30 {
+					helpWidth = 30
+				}
+				printWrappedDesc(prefix, choiceIndent, ch.help, helpWidth)
 			}
 		}
 	}
@@ -547,10 +557,13 @@ func (p *Parser) PrintHelp() {
 
 			if len(a.choiceHelps) > 0 {
 				for _, ch := range a.choiceHelps {
-					prefix := fmt.Sprintf("  %s:", ch.choice)
-					choiceIndent := maxLen + len(prefix)
-					left := fmt.Sprintf("%*s%s", maxLen, "", prefix)
-					printWrappedDesc(left, choiceIndent, ch.help, descWidth-len(prefix))
+					prefix := fmt.Sprintf("%*s  %s:", maxLen, "", ch.choice)
+					choiceIndent := len(prefix)
+					helpWidth := descWidth - 6
+					if helpWidth < 30 {
+						helpWidth = 30
+					}
+					printWrappedDesc(prefix, choiceIndent, ch.help, helpWidth)
 				}
 			}
 		}
