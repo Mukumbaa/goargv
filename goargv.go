@@ -351,7 +351,7 @@ func (p *Parser) PrintHelp() {
 	}
 
 	fmt.Println("Options:")
-	helpPadding := 2
+	helpPadding := 4
 	if maxLen > 10 {
 		helpPadding = maxLen - 12
 	}
