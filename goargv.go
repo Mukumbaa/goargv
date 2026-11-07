@@ -1,4 +1,4 @@
-package libargv
+package goargv
 
 import (
 	"errors"
@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// Errori sentinella per il controllo con errors.Is()
 var (
 	ErrHelpRequested   = errors.New("help requested")
 	ErrUnknownFlag     = errors.New("unknown flag")
@@ -41,14 +40,14 @@ const (
 
 type cliRule struct {
 	ruleType ruleType
-	target   string // Per exclusive: gruppo "json,xml,ini"; per dependency: flag "pass"
-	requires string // Per dependency: requisiti "user,mail"; per exclusive: ""
+	target   string 
+	requires string 
 }
 
 type cliArg struct {
 	name         string
-	shortFlag    string // Normalizzato con "-" (es: "-v")
-	longFlag     string // Normalizzato con "--" (es: "--verbose")
+	shortFlag    string 
+	longFlag     string 
 	help         string
 	choices      string
 	envVar       string
@@ -65,7 +64,6 @@ type Parser struct {
 	rules       []cliRule
 }
 
-// New crea e inizializza un nuovo Parser
 func New(programName string) *Parser {
 	return &Parser{
 		programName: programName,
@@ -74,7 +72,6 @@ func New(programName string) *Parser {
 	}
 }
 
-// Normalizzazione: accetta con o senza trattini
 func normalizeShort(sh string) string {
 	sh = strings.TrimSpace(sh)
 	if sh == "" {
@@ -127,7 +124,6 @@ func (p *Parser) addArg(name, sh, lng string, t CliType, target any, required, i
 	})
 }
 
-// --- Bindings dei Flag (accettano "v" o "-v", "verbose" o "--verbose") ---
 
 func (p *Parser) BindBool(sh, lng string, target *bool, help string) {
 	p.addArg("", sh, lng, TypeBool, target, false, false, "", help)
@@ -153,7 +149,6 @@ func (p *Parser) BindFloat(sh, lng string, target *float64, required bool, choic
 	p.addArg("", sh, lng, TypeFloat, target, required, false, choices, help)
 }
 
-// --- Bindings Posizionali ---
 
 func (p *Parser) BindPos(name string, target *string, required bool, choices, help string) {
 	p.addArg(name, "", "", TypeStr, target, required, true, choices, help)
@@ -164,7 +159,6 @@ func (p *Parser) BindRest(name string, target *[]string, required bool, choices,
 	p.addArg(name, "", "", TypeRest, target, required, true, choices, help)
 }
 
-// --- Lookup Flessibile ---
 
 func (p *Parser) findArg(ident string) *cliArg {
 	ident = strings.TrimSpace(ident)
@@ -189,16 +183,13 @@ func (p *Parser) findArg(ident string) *cliArg {
 	return nil
 }
 
-// --- Funzionalità Avanzate: Env Vars e Regole ---
 
-// SetEnv imposta una variabile d'ambiente di fallback per un flag o posizionale
 func (p *Parser) SetEnv(flagOrName, envVar string) {
 	if a := p.findArg(flagOrName); a != nil {
 		a.envVar = envVar
 	}
 }
 
-// AddExclusive aggiunge un gruppo di flag mutualmente esclusivi (es. "json,xml,ini" oppure "json|xml|ini")
 func (p *Parser) AddExclusive(flagsGroup string) {
 	p.rules = append(p.rules, cliRule{
 		ruleType: ruleExclusive,
@@ -206,7 +197,6 @@ func (p *Parser) AddExclusive(flagsGroup string) {
 	})
 }
 
-// AddDependency imposta i requisiti per un flag (es. il flag "pass" richiede "user,mail")
 func (p *Parser) AddDependency(flag, requiresFlags string) {
 	p.rules = append(p.rules, cliRule{
 		ruleType: ruleDependency,
@@ -215,7 +205,6 @@ func (p *Parser) AddDependency(flag, requiresFlags string) {
 	})
 }
 
-// --- Validazione Choices ---
 
 func splitTokens(s string) []string {
 	fields := strings.FieldsFunc(s, func(r rune) bool {
@@ -278,7 +267,6 @@ func (arg *cliArg) formatTypeHint() string {
 	}
 }
 
-// --- Help Display ---
 
 func (p *Parser) PrintSingleHelp(arg *cliArg) {
 	if arg.isPositional {
@@ -434,7 +422,6 @@ func (p *Parser) PrintHelp() {
 	}
 }
 
-// --- Assegnazione e Parsing ---
 
 func (p *Parser) findFlag(flag string, isShort bool) *cliArg {
 	for _, a := range p.args {
@@ -498,9 +485,7 @@ func isNegativeNumber(s string) bool {
 	return (s[1] >= '0' && s[1] <= '9') || s[1] == '.'
 }
 
-// Parse analizza gli argomenti (tipicamente os.Args[1:])
 func (p *Parser) Parse(args []string) error {
-	// 1. Scansione preliminare per -h / --help
 	for i, token := range args {
 		if token == "-h" || token == "--help" {
 			var inspect string
@@ -527,7 +512,6 @@ func (p *Parser) Parse(args []string) error {
 	stopFlags := false
 	currentPosIndex := 0
 
-	// 2. Ciclo di analisi dei token
 	for i := 0; i < len(args); i++ {
 		token := args[i]
 
@@ -536,7 +520,6 @@ func (p *Parser) Parse(args []string) error {
 			continue
 		}
 
-		// Posizionali o trattino singolo "-"
 		if stopFlags || !strings.HasPrefix(token, "-") || token == "-" {
 			var targetPos *cliArg
 			foundPos := 0
@@ -563,7 +546,6 @@ func (p *Parser) Parse(args []string) error {
 			continue
 		}
 
-		// Flag lunghi "--flag"
 		if strings.HasPrefix(token, "--") {
 			var flagName, inlineVal string
 			hasInline := false
@@ -607,7 +589,6 @@ func (p *Parser) Parse(args []string) error {
 			continue
 		}
 
-		// Flag corti combinati (es: -xvf)
 		tokenRunes := []rune(token)
 		for c := 1; c < len(tokenRunes); c++ {
 			singleSh := "-" + string(tokenRunes[c])
@@ -643,7 +624,6 @@ func (p *Parser) Parse(args []string) error {
 		}
 	}
 
-	// 3. Fallback su Variabili d'Ambiente per flag non impostati
 	for _, arg := range p.args {
 		if !arg.isSet && arg.envVar != "" {
 			if envVal, ok := os.LookupEnv(arg.envVar); ok && envVal != "" {
@@ -667,7 +647,6 @@ func (p *Parser) Parse(args []string) error {
 		}
 	}
 
-	// 4. Controllo Regole Logiche (Mutua Esclusione e Dipendenze)
 	for _, rule := range p.rules {
 		if rule.ruleType == ruleExclusive {
 			tokens := splitTokens(rule.target)
@@ -696,7 +675,6 @@ func (p *Parser) Parse(args []string) error {
 		}
 	}
 
-	// 5. Controllo Argomenti Obbligatori
 	for _, a := range p.args {
 		if a.required && !a.isSet {
 			if a.isPositional {
