@@ -44,12 +44,18 @@ type cliRule struct {
 	requires string 
 }
 
+type cliChoiceHelp struct {
+	choice string
+	help   string
+}
+
 type cliArg struct {
 	name         string
 	shortFlag    string 
 	longFlag     string 
 	help         string
 	choices      string
+	choiceHelps  []cliChoiceHelp
 	envVar       string
 	argType      CliType
 	target       any
@@ -62,6 +68,7 @@ type Parser struct {
 	programName string
 	args        []*cliArg
 	rules       []cliRule
+	initErr     error 
 }
 
 func New(programName string) *Parser {
@@ -120,10 +127,10 @@ func (p *Parser) addArg(name, sh, lng string, t CliType, target any, required, i
 		required:     required,
 		isPositional: isPos,
 		choices:      choices,
+		choiceHelps:  make([]cliChoiceHelp, 0),
 		help:         help,
 	})
 }
-
 
 func (p *Parser) BindBool(sh, lng string, target *bool, help string) {
 	p.addArg("", sh, lng, TypeBool, target, false, false, "", help)
@@ -149,7 +156,6 @@ func (p *Parser) BindFloat(sh, lng string, target *float64, required bool, choic
 	p.addArg("", sh, lng, TypeFloat, target, required, false, choices, help)
 }
 
-
 func (p *Parser) BindPos(name string, target *string, required bool, choices, help string) {
 	p.addArg(name, "", "", TypeStr, target, required, true, choices, help)
 }
@@ -158,7 +164,6 @@ func (p *Parser) BindRest(name string, target *[]string, required bool, choices,
 	*target = nil
 	p.addArg(name, "", "", TypeRest, target, required, true, choices, help)
 }
-
 
 func (p *Parser) findArg(ident string) *cliArg {
 	ident = strings.TrimSpace(ident)
@@ -183,11 +188,68 @@ func (p *Parser) findArg(ident string) *cliArg {
 	return nil
 }
 
-
 func (p *Parser) SetEnv(flagOrName, envVar string) {
 	if a := p.findArg(flagOrName); a != nil {
 		a.envVar = envVar
 	}
+}
+
+func (arg *cliArg) choiceExists(choice string) bool {
+	if arg.choices == "" || choice == "" {
+		return false
+	}
+	if arg.argType == TypeChar && !strings.ContainsAny(arg.choices, ",|") {
+		return len(choice) == 1 && strings.Contains(arg.choices, choice)
+	}
+
+	tokens := splitTokens(arg.choices)
+	for _, token := range tokens {
+		if token == choice {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error {
+	arg := p.findArg(flagOrName)
+	if arg == nil {
+		err := fmt.Errorf("%w: argument '%s' not found for choice help", ErrUnknownFlag, flagOrName)
+		if p.initErr == nil {
+			p.initErr = err
+		}
+		return err
+	}
+
+	if arg.choices == "" {
+		err := fmt.Errorf("%w: argument '%s' has no choices defined", ErrInvalidValue, flagOrName)
+		if p.initErr == nil {
+			p.initErr = err
+		}
+		return err
+	}
+
+	if !arg.choiceExists(choice) {
+		err := fmt.Errorf("%w: choice '%s' is not valid for argument '%s' (allowed: [%s])",
+			ErrInvalidValue, choice, arg.displayName(), arg.choices)
+		if p.initErr == nil {
+			p.initErr = err
+		}
+		return err
+	}
+
+	for i := range arg.choiceHelps {
+		if arg.choiceHelps[i].choice == choice {
+			arg.choiceHelps[i].help = help
+			return nil
+		}
+	}
+
+	arg.choiceHelps = append(arg.choiceHelps, cliChoiceHelp{
+		choice: choice,
+		help:   help,
+	})
+	return nil
 }
 
 func (p *Parser) AddExclusive(flagsGroup string) {
@@ -204,7 +266,6 @@ func (p *Parser) AddDependency(flag, requiresFlags string) {
 		requires: requiresFlags,
 	})
 }
-
 
 func splitTokens(s string) []string {
 	fields := strings.FieldsFunc(s, func(r rune) bool {
@@ -267,7 +328,6 @@ func (arg *cliArg) formatTypeHint() string {
 	}
 }
 
-
 func (p *Parser) PrintSingleHelp(arg *cliArg) {
 	if arg.isPositional {
 		fmt.Printf("Positional argument:   <%s>\n", arg.displayName())
@@ -292,6 +352,17 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 	}
 	if arg.choices != "" {
 		fmt.Printf("Allowed choices:       [%s]\n", arg.choices)
+		if len(arg.choiceHelps) > 0 {
+			maxCLen := 0
+			for _, ch := range arg.choiceHelps {
+				if len(ch.choice) > maxCLen {
+					maxCLen = len(ch.choice)
+				}
+			}
+			for _, ch := range arg.choiceHelps {
+				fmt.Printf("  %-*s : %s\n", maxCLen, ch.choice, ch.help)
+			}
+		}
 	}
 	help := "No documentation available."
 	if arg.help != "" {
@@ -355,7 +426,7 @@ func (p *Parser) PrintHelp() {
 	if maxLen > 10 {
 		helpPadding = maxLen - 12
 	}
-	fmt.Printf("  -h, --help%-*s Display this help message\n", helpPadding, "")
+	fmt.Printf("  -h, --help%-*s  Display this help message\n", helpPadding, "")
 
 	for _, a := range p.args {
 		if a.isPositional {
@@ -380,7 +451,13 @@ func (p *Parser) PrintHelp() {
 			envStr = fmt.Sprintf(" [env: %s]", a.envVar)
 		}
 
-		fmt.Printf("%-*s %s%s%s\n", maxLen, buf, a.help, reqStr, envStr)
+		fmt.Printf("%-*s  %s%s%s\n", maxLen, buf, a.help, reqStr, envStr)
+
+		if len(a.choiceHelps) > 0 {
+			for _, ch := range a.choiceHelps {
+				fmt.Printf("%*s  %s: %s\n", maxLen, "", ch.choice, ch.help)
+			}
+		}
 	}
 
 	hasPos := false
@@ -417,11 +494,16 @@ func (p *Parser) PrintHelp() {
 			if a.envVar != "" {
 				envStr = fmt.Sprintf(" [env: %s]", a.envVar)
 			}
-			fmt.Printf("%-*s %s%s%s\n", maxLen, buf, a.help, reqStr, envStr)
+			fmt.Printf("%-*s  %s%s%s\n", maxLen, buf, a.help, reqStr, envStr)
+
+			if len(a.choiceHelps) > 0 {
+				for _, ch := range a.choiceHelps {
+					fmt.Printf("%*s  %s: %s\n", maxLen, "", ch.choice, ch.help)
+				}
+			}
 		}
 	}
 }
-
 
 func (p *Parser) findFlag(flag string, isShort bool) *cliArg {
 	for _, a := range p.args {
@@ -486,6 +568,10 @@ func isNegativeNumber(s string) bool {
 }
 
 func (p *Parser) Parse(args []string) error {
+	if p.initErr != nil {
+		return p.initErr
+	}
+
 	for i, token := range args {
 		if token == "-h" || token == "--help" {
 			var inspect string
