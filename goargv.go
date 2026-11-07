@@ -363,7 +363,7 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 			}
 			for _, ch := range arg.choiceHelps {
 				prefix := fmt.Sprintf("  %-*s:", maxCLen, ch.choice)
-				printWrappedDesc(prefix, len(prefix), ch.help, descWidth)
+				printWrappedDesc(prefix, len(prefix),1, ch.help, descWidth)
 			}
 		}
 	}
@@ -371,12 +371,11 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 	if arg.help != "" {
 		help = arg.help
 	}
-	printWrappedDesc("Description:", 21, help, descWidth)
+	printWrappedDesc("Description:", 21,2, help, descWidth)
 }
 
-func printWrappedDesc(leftCol string, indent int, text string, descWidth int) {
+func printWrappedDesc(leftCol string, indent int, gutter int, text string, descWidth int) {
 	leftLen := len(leftCol)
-	gutter := 2 
 
 	if leftLen > 0 {
 		fmt.Print(leftCol)
@@ -479,7 +478,7 @@ func (p *Parser) PrintHelp() {
 	}
 
 	fmt.Println("Options:")
-	printWrappedDesc("  -h, --help", maxLen, "Display this help message", descWidth)
+	printWrappedDesc("  -h, --help", maxLen,2, "Display this help message", descWidth)
 
 	for _, a := range p.args {
 		if a.isPositional {
@@ -505,7 +504,7 @@ func (p *Parser) PrintHelp() {
 		}
 
 		fullDesc := fmt.Sprintf("%s%s%s", a.help, reqStr, envStr)
-		printWrappedDesc(buf, maxLen, fullDesc, descWidth)
+		printWrappedDesc(buf, maxLen,2, fullDesc, descWidth)
 
 		if len(a.choiceHelps) > 0 {
 			for _, ch := range a.choiceHelps {
@@ -515,7 +514,7 @@ func (p *Parser) PrintHelp() {
 				if helpWidth < 30 {
 					helpWidth = 30
 				}
-				printWrappedDesc(prefix, choiceIndent, ch.help, helpWidth)
+				printWrappedDesc(prefix, choiceIndent, 1, ch.help, helpWidth)
 			}
 		}
 	}
@@ -556,7 +555,7 @@ func (p *Parser) PrintHelp() {
 			}
 
 			fullDesc := fmt.Sprintf("%s%s%s", a.help, reqStr, envStr)
-			printWrappedDesc(buf, maxLen, fullDesc, descWidth)
+			printWrappedDesc(buf, maxLen,2, fullDesc, descWidth)
 
 			if len(a.choiceHelps) > 0 {
 				for _, ch := range a.choiceHelps {
@@ -566,7 +565,7 @@ func (p *Parser) PrintHelp() {
 					if helpWidth < 30 {
 						helpWidth = 30
 					}
-					printWrappedDesc(prefix, choiceIndent, ch.help, helpWidth)
+					printWrappedDesc(prefix, choiceIndent,1, ch.help, helpWidth)
 				}
 			}
 		}
