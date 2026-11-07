@@ -455,7 +455,7 @@ func (p *Parser) PrintHelp() {
 
 		if len(a.choiceHelps) > 0 {
 			for _, ch := range a.choiceHelps {
-				fmt.Printf("%*s  %s: %s\n", maxLen, "", ch.choice, ch.help)
+				fmt.Printf("%*s  %s: %s\n", maxLen + 2, "", ch.choice, ch.help)
 			}
 		}
 	}
@@ -498,7 +498,7 @@ func (p *Parser) PrintHelp() {
 
 			if len(a.choiceHelps) > 0 {
 				for _, ch := range a.choiceHelps {
-					fmt.Printf("%*s  %s: %s\n", maxLen, "", ch.choice, ch.help)
+					fmt.Printf("%*s  %s: %s\n", maxLen + 2, "", ch.choice, ch.help)
 				}
 			}
 		}
