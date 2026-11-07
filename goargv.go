@@ -371,11 +371,58 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 	fmt.Printf("Description:           %s\n", help)
 }
 
+func printWrappedDesc(leftCol string, indent int, text string, descWidth int) {
+	if text == "" {
+		if leftCol != "" {
+			fmt.Println(leftCol)
+		}
+		return
+	}
+
+	if leftCol != "" {
+		if len(leftCol) >= indent {
+			fmt.Printf("%s\n%*s  ", leftCol, indent, "")
+		} else {
+			fmt.Printf("%-*s  ", indent, leftCol)
+		}
+	} else {
+		fmt.Printf("%*s  ", indent, "")
+	}
+
+	words := strings.Fields(text)
+	lineLen := 0
+	firstWord := true
+
+	for _, word := range words {
+		needed := len(word)
+		if !firstWord {
+			needed += 1
+		}
+
+		if !firstWord && lineLen+needed > descWidth {
+			fmt.Printf("\n%*s  ", indent, "")
+			lineLen = 0
+			firstWord = true
+		}
+
+		if !firstWord {
+			fmt.Print(" ")
+			lineLen++
+		}
+		fmt.Print(word)
+		lineLen += len(word)
+		firstWord = false
+	}
+	fmt.Println()
+}
+
 func (p *Parser) PrintHelp() {
 	prog := filepath.Base(p.programName)
 	if prog == "" || prog == "." {
 		prog = "program"
 	}
+
+	descWidth := 50
 
 	fmt.Printf("Usage: %s [OPTIONS]", prog)
 
@@ -422,11 +469,7 @@ func (p *Parser) PrintHelp() {
 	}
 
 	fmt.Println("Options:")
-	helpPadding := 2
-	if maxLen > 10 {
-		helpPadding = maxLen - 12
-	}
-	fmt.Printf("  -h, --help%-*s  Display this help message\n", helpPadding, "")
+	printWrappedDesc("  -h, --help", maxLen, "Display this help message", descWidth)
 
 	for _, a := range p.args {
 		if a.isPositional {
@@ -451,11 +494,15 @@ func (p *Parser) PrintHelp() {
 			envStr = fmt.Sprintf(" [env: %s]", a.envVar)
 		}
 
-		fmt.Printf("%-*s  %s%s%s\n", maxLen, buf, a.help, reqStr, envStr)
+		fullDesc := fmt.Sprintf("%s%s%s", a.help, reqStr, envStr)
+		printWrappedDesc(buf, maxLen, fullDesc, descWidth)
 
 		if len(a.choiceHelps) > 0 {
 			for _, ch := range a.choiceHelps {
-				fmt.Printf("%*s  %s: %s\n", maxLen + 2, "", ch.choice, ch.help)
+				prefix := fmt.Sprintf("  %s:", ch.choice)
+				choiceIndent := maxLen + len(prefix)
+				left := fmt.Sprintf("%*s%s", maxLen, "", prefix)
+				printWrappedDesc(left, choiceIndent, ch.help, descWidth-len(prefix))
 			}
 		}
 	}
@@ -494,11 +541,16 @@ func (p *Parser) PrintHelp() {
 			if a.envVar != "" {
 				envStr = fmt.Sprintf(" [env: %s]", a.envVar)
 			}
-			fmt.Printf("%-*s  %s%s%s\n", maxLen, buf, a.help, reqStr, envStr)
+
+			fullDesc := fmt.Sprintf("%s%s%s", a.help, reqStr, envStr)
+			printWrappedDesc(buf, maxLen, fullDesc, descWidth)
 
 			if len(a.choiceHelps) > 0 {
 				for _, ch := range a.choiceHelps {
-					fmt.Printf("%*s  %s: %s\n", maxLen + 2, "", ch.choice, ch.help)
+					prefix := fmt.Sprintf("  %s:", ch.choice)
+					choiceIndent := maxLen + len(prefix)
+					left := fmt.Sprintf("%*s%s", maxLen, "", prefix)
+					printWrappedDesc(left, choiceIndent, ch.help, descWidth-len(prefix))
 				}
 			}
 		}
