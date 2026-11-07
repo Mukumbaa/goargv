@@ -1,14 +1,14 @@
-# libargv (Go)
+# goargv (Go)
 
 A lightweight, zero-dependency CLI argument parser for Go. 
 
-Designed as a modern, powerful alternative to Go's standard `flag` package, `libargv` allows you to bind command-line options and positional arguments directly to your pointers while supporting POSIX-compliant short flag clustering, value constraints, environment variable fallbacks, and multi-flag logical rules.
+Designed as a modern, powerful alternative to Go's standard `flag` package, `goargv` allows you to bind command-line options and positional arguments directly to your pointers while supporting POSIX-compliant short flag clustering, value constraints, environment variable fallbacks, and multi-flag logical rules.
 
 ---
 
 ## Why use this over Go's standard `flag`?
 
-Go's built-in `flag` package is reliable but lacks many features expected in modern CLI tools. `libargv` fills that gap without pulling in heavy external frameworks:
+Go's built-in `flag` package is reliable but lacks many features expected in modern CLI tools. `goargv` fills that gap without pulling in heavy external frameworks:
 
 - **Zero dependencies**: Uses only the Go standard library (`errors`, `fmt`, `os`, `path/filepath`, `strconv`, `strings`).
 - **Flexible flag definition**: Pass `"v"` and `"verbose"` or `"-v"` and `"--verbose"`—prefixes are automatically normalized.
@@ -17,7 +17,7 @@ Go's built-in `flag` package is reliable but lacks many features expected in mod
 - **Environment variable fallback**: Automatically read unset flags from environment variables (`SetEnv`).
 - **Logical relationships**: Enforce mutual exclusion across groups (`AddExclusive`) and define prerequisite flag dependencies (`AddDependency`).
 - **First-class positional & rest arguments**: Easily declare mandatory/optional positional arguments and trailing slices (`BindRest`).
-- **Idiomatic error handling**: Inspect failures using standard `errors.Is(err, libargv.ErrMutualExclusion)`.
+- **Idiomatic error handling**: Inspect failures using standard `errors.Is(err, goargv.ErrMutualExclusion)`.
 - **Intelligent help**: Auto-aligned options with choices and environment variable previews, plus per-flag inspection (e.g. `--help port`).
 
 ---
@@ -25,7 +25,7 @@ Go's built-in `flag` package is reliable but lacks many features expected in mod
 ## Installation
 
 ```bash
-go get github.com/Mukumbaa/libargv
+go get github.com/Mukumbaa/goargv
 ```
 ---
 
@@ -39,11 +39,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Mukumbaa/libargv"
+	"github.com/Mukumbaa/goargv"
 )
 
 func main() {
-	p := libargv.New("converter")
+	p := goargv.New("converter")
 
 	// 1. Declare target variables with default values
 	var (
@@ -84,17 +84,17 @@ func main() {
 
 	// 5. Parse command line arguments (os.Args[1:])
 	if err := p.Parse(os.Args[1:]); err != nil {
-		if errors.Is(err, libargv.ErrHelpRequested) {
+		if errors.Is(err, goargv.ErrHelpRequested) {
 			os.Exit(0)
 		}
 
 		// Handle specific validation errors
 		switch {
-		case errors.Is(err, libargv.ErrMutualExclusion):
+		case errors.Is(err, goargv.ErrMutualExclusion):
 			fmt.Fprintf(os.Stderr, "Conflict error: %v\n", err)
-		case errors.Is(err, libargv.ErrDependency):
+		case errors.Is(err, goargv.ErrDependency):
 			fmt.Fprintf(os.Stderr, "Dependency error: %v\n", err)
-		case errors.Is(err, libargv.ErrMissingRequired):
+		case errors.Is(err, goargv.ErrMissingRequired):
 			fmt.Fprintf(os.Stderr, "Missing argument: %v\n", err)
 		default:
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -175,11 +175,11 @@ func (p *Parser) Parse(args []string) error
 ```
 
 `Parse` returns typed sentinel errors checkable via `errors.Is`:
-- `libargv.ErrHelpRequested`: Triggered by `-h` or `--help`. Help text is automatically printed.
-- `libargv.ErrUnknownFlag`: An unregistered flag or unexpected positional argument was passed.
-- `libargv.ErrMissingValue`: A flag requiring a value was left empty.
-- `libargv.ErrInvalidValue`: Value parsing failed (e.g., invalid integer) or violated `choices`.
-- `libargv.ErrMissingRequired`: A required flag or positional argument was not provided.
-- `libargv.ErrMutualExclusion`: Multiple flags from an exclusive group were supplied.
-- `libargv.ErrDependency`: A dependent flag was provided without satisfying its required dependencies.
+- `goargv.ErrHelpRequested`: Triggered by `-h` or `--help`. Help text is automatically printed.
+- `goargv.ErrUnknownFlag`: An unregistered flag or unexpected positional argument was passed.
+- `goargv.ErrMissingValue`: A flag requiring a value was left empty.
+- `goargv.ErrInvalidValue`: Value parsing failed (e.g., invalid integer) or violated `choices`.
+- `goargv.ErrMissingRequired`: A required flag or positional argument was not provided.
+- `goargv.ErrMutualExclusion`: Multiple flags from an exclusive group were supplied.
+- `goargv.ErrDependency`: A dependent flag was provided without satisfying its required dependencies.
 
