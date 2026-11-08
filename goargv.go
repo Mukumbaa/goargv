@@ -353,7 +353,7 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 		fmt.Printf("%-23s%s\n", "Environment variable:", arg.envVar)
 	}
 	if arg.choices != "" {
-		fmt.Printf("%-23s[%s]\n", "Allowed choices:", arg.choices)
+		fmt.Printf("Allowed choices:\n")
 		if len(arg.choiceHelps) > 0 {
 			maxCLen := 0
 			for _, ch := range arg.choiceHelps {
@@ -367,11 +367,12 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 			}
 		}
 	}
+	fmt.Printf("\nDescription:\n")
 	help := "No documentation available."
 	if arg.help != "" {
 		help = arg.help
 	}
-	printWrappedDesc("Description:", 21,2, help, descWidth)
+	printWrappedDesc("", 2,0, help, descWidth)
 }
 
 func printWrappedDesc(leftCol string, indent int, gutter int, text string, descWidth int) {
