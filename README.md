@@ -147,6 +147,124 @@ func main() {
 
 ---
 
+## Subcommands (Git-style CLI)
+
+You don't need a bulky framework like Cobra to build multi-command CLIs (e.g. `docker`, `git`, or `cargo`). 
+
+`goargv` allows you to implement a clean **Subcommand Router** pattern without any extra abstractions:
+1. The **root parser** validates the command as a positional argument and documents available subcommands using `SetChoiceHelp`.
+2. A simple `switch` inspects the command and passes the remaining arguments (`os.Args[2:]`) to a dedicated sub-parser.
+
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/Mukumbaa/goargv"
+)
+
+func main() {
+	var cmd string
+
+	// 1. Root Parser: validates and documents top-level subcommands
+	root := goargv.New("git")
+	root.SetVersion("2.43.0", "V", "A Git CLI mock in Go")
+	root.BindPos("command", &cmd, true, "commit,clone", "Git subcommand to execute")
+	root.SetChoiceHelp("command", "commit", "Record changes to the repository")
+	root.SetChoiceHelp("command", "clone", "Clone a repository into a new directory")
+
+	// Handle general --help, --version, or missing command
+	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "-V" || os.Args[1] == "--version" {
+		err := root.Parse(os.Args[1:])
+		if errors.Is(err, goargv.ErrHelpRequested) || errors.Is(err, goargv.ErrVersionRequested) {
+			os.Exit(0)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "git: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Validate that the command is allowed
+	if err := root.Parse(os.Args[1:2]); err != nil {
+		fmt.Fprintf(os.Stderr, "git: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 2. Dispatch remaining arguments (os.Args[2:]) to the dedicated subcommand parser
+	subArgs := os.Args[2:]
+	switch cmd {
+	case "commit":
+		runCommit(subArgs)
+	case "clone":
+		runClone(subArgs)
+	}
+}
+
+func runCommit(args []string) {
+	var (
+		message string
+		all     bool
+	)
+	p := goargv.New("git commit")
+	p.BindStr("m", "message", &message, true, "", "Commit message")
+	p.BindBool("a", "all", &all, "Automatically stage modified files")
+
+	if err := p.Parse(args); err != nil {
+		if errors.Is(err, goargv.ErrHelpRequested) {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "commit: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Committed: %q (stage all: %v)\n", message, all)
+}
+
+func runClone(args []string) {
+	var (
+		depth int
+		repo  string
+	)
+	p := goargv.New("git clone")
+	p.BindInt("", "depth", &depth, false, "", "Create a shallow clone")
+	p.BindPos("repository", &repo, true, "", "Repository URL")
+
+	if err := p.Parse(args); err != nil {
+		if errors.Is(err, goargv.ErrHelpRequested) {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "clone: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Cloning %s (depth: %d)\n", repo, depth)
+}
+```
+
+#### What you get automatically:
+- **Top-level help (`git --help`)**:
+  ```text
+  Usage: git [OPTIONS] <command>
+
+  Positional Arguments:
+    <command> <str>      Git subcommand to execute [required]
+      clone: Clone a repository into a new directory
+      commit: Record changes to the repository
+  ```
+- **Contextual subcommand help (`git commit --help`)**:
+  ```text
+  Usage: git commit [OPTIONS]
+
+  Options:
+    -h, --help           Display this help message
+    -m, --message <str>  Commit message [required]
+    -a, --all            Automatically stage modified files
+  ```
+---
+
 ## API Reference
 
 ### Initialization & Configuration
