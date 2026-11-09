@@ -12,13 +12,14 @@ Go's built-in `flag` package is reliable but lacks many features expected in mod
 
 - **Zero dependencies**: Uses only the Go standard library (`errors`, `fmt`, `os`, `path/filepath`, `strconv`, `strings`).
 - **Flexible flag definition**: Pass `"v"` and `"verbose"` or `"-v"` and `"--verbose"`—prefixes are automatically normalized.
+- **Built-in version management**: Set application version and metadata with `SetVersion`, supporting optional short flags (`-V`), version banners in help, and `--version` handling.
 - **Short flag clustering**: Bundles short flags seamlessly (e.g., `-xvf archive.tar.gz` or `-vvv`).
 - **Documented choices**: Restrict values to allowed choices (`choices`) and document each option with custom descriptions using `SetChoiceHelp`.
 - **Environment variable fallback**: Automatically read unset flags from environment variables (`SetEnv`).
 - **Logical relationships**: Enforce mutual exclusion across groups (`AddExclusive`) and define prerequisite flag dependencies (`AddDependency`).
 - **First-class positional & rest arguments**: Easily declare mandatory/optional positional arguments and trailing slices (`BindRest`).
 - **Idiomatic error handling**: Inspect failures using standard `errors.Is(err, goargv.ErrMutualExclusion)`.
-- **Intelligent help**: Auto-aligned options with choices and environment variable previews, plus per-flag inspection (e.g. `--help port`).
+- **Intelligent help**: Auto-aligned options with bounded word-wrapping (50 chars), choices and environment variable previews, plus per-flag inspection (e.g. `--help port` or `--help version`).
 
 ---
 
@@ -58,6 +59,9 @@ func main() {
 		restArgs []string
 	)
 
+	// Optional: configure application version and metadata
+	p.SetVersion("1.0.0", "V", "A versatile data conversion utility in Go")
+
 	// 2. Bind flags (prefixes '-' and '--' are optional!)
 	p.BindCount("v", "verbose", &verbose, "Increase verbosity level (-v, -vv)")
 	p.BindChar("t", "radix", &radix, false, "d,x,o", "Offset output radix")
@@ -88,7 +92,8 @@ func main() {
 
 	// 6. Parse command line arguments (os.Args[1:])
 	if err := p.Parse(os.Args[1:]); err != nil {
-		if errors.Is(err, goargv.ErrHelpRequested) {
+		// Clean exit on help or version request
+		if errors.Is(err, goargv.ErrHelpRequested) || errors.Is(err, goargv.ErrVersionRequested) {
 			os.Exit(0)
 		}
 
@@ -130,6 +135,7 @@ func main() {
 | **Negative numbers** | `--offset -12`, `-t -0.5` | Negative numbers are not mistaken for flags. |
 | **Value choices** | `choices: "json,xml"` | Validates values against comma- or pipe-delimited choices. |
 | **Documented choices** | `p.SetChoiceHelp(...)` | Documents what each choice does; displays indented descriptions in help screens. |
+| **Built-in version** | `-V`, `--version` | Displays version and optional metadata banner. |
 | **Environment fallback** | `PORT=9000 ./app` | Uses environment variable value when flag is omitted. |
 | **Exclusive groups** | `--json --xml` *(rejected)* | Forbids using options from the same exclusive group together. |
 | **Flag dependencies** | `--pass 123` *(without `--user`)* | Enforces prerequisites before allowing a dependent option. |
@@ -146,6 +152,16 @@ func main() {
 func New(programName string) *Parser
 ```
 Creates a new `Parser` instance.
+
+### Version Management
+
+```go
+func (p *Parser) SetVersion(version, sh, extraInfo string)
+```
+Configures the application version and enables built-in `--version` handling:
+- `version`: Version string (e.g. `"1.0.0"`). If empty, the feature remains disabled.
+- `sh`: Optional short flag (e.g. `"V"` or `"-V"`). Pass `""` to enable only the long flag `--version`.
+- `extraInfo`: Optional secondary text (e.g. copyright, license). Pass `""` to omit.
 
 ### Binding Options
 
@@ -193,6 +209,7 @@ func (p *Parser) Parse(args []string) error
 
 `Parse` returns typed sentinel errors checkable via `errors.Is`:
 - `goargv.ErrHelpRequested`: Triggered by `-h` or `--help`. Help text is automatically printed.
+- `goargv.ErrVersionRequested`: Triggered by `-V` or `--version`. Version banner is automatically printed.
 - `goargv.ErrUnknownFlag`: An unregistered flag or unexpected positional argument was passed.
 - `goargv.ErrMissingValue`: A flag requiring a value was left empty.
 - `goargv.ErrInvalidValue`: Value parsing failed, value violated `choices`, or invalid choice documentation specified.
@@ -204,27 +221,34 @@ func (p *Parser) Parse(args []string) error
 
 ## Built-in Help System
 
-`goargv` hooks into `-h` and `--help` automatically:
+`goargv` hooks into `-h`, `--help`, and `--version` automatically:
 
-1. **General help**: Running `./mytool --help` lists the usage line, registered options, allowed choices, per-choice indented documentation, and environment variable bindings (`[env: NAME]`):
+1. **General help**: Running `./mytool --help` displays the version banner (if set), usage line, registered options, formatted choices, and environment variable bindings (`[env: NAME]`):
    ```text
+   mytool v1.0.0
+
+   Usage: mytool [OPTIONS]
+
    Options:
      -h, --help                   Display this help message
+     -V, --version                Display version information
      -t, --radix {d,x,o}          Offset output radix
                                     d: decimal offset
                                     x: hexadecimal offset
                                     o: octal offset
      -p, --port <int>             Server listen port [env: PORT]
    ```
-2. **Flag inspection**: Running `./mytool --help radix` (or `./mytool -t -h`) displays full details for that option, including allowed choices with aligned explanations:
+2. **Flag inspection**: Running `./mytool --help radix` (or `./mytool --help version`) displays full details for that option, including allowed choices with aligned explanations:
    ```text
    Short flag:            -t
    Long flag:             --radix
    Value required:        Yes
    Mandatory:             No
-   Allowed choices:       [d,x,o]
-     d : decimal offset
-     x : hexadecimal offset
-     o : octal offset
-   Description:           Offset output radix
+   Allowed choices:
+     d: decimal offset
+     x: hexadecimal offset
+     o: octal offset
+
+   Description:
+     Offset output radix
    ```
