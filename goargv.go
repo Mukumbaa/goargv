@@ -134,7 +134,9 @@ func (p *Parser) formatDefaultValue(a *cliArg) string {
 	case TypeStr:
 		v := *(a.target.(*string))
 		if v != "" {
-			return fmt.Sprintf(" [default: %s]", v)
+			clean := strings.ReplaceAll(v, "\n", `\n`)
+			clean = strings.ReplaceAll(clean, "\t", `\t`)
+			return fmt.Sprintf(" [default: %s]", clean)
 		}
 	case TypeInt:
 		v := *(a.target.(*int))
@@ -148,7 +150,7 @@ func (p *Parser) formatDefaultValue(a *cliArg) string {
 		}
 	case TypeChar:
 		v := *(a.target.(*byte))
-		if v != 0 {
+		if v > 32 && v <= 126 {
 			return fmt.Sprintf(" [default: %c]", v)
 		}
 	case TypeBool:
