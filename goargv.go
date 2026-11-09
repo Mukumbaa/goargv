@@ -11,6 +11,7 @@ import (
 
 var (
 	ErrHelpRequested   = errors.New("help requested")
+	ErrVersionRequested   = errors.New("version requested")
 	ErrUnknownFlag     = errors.New("unknown flag")
 	ErrMissingValue    = errors.New("missing value")
 	ErrInvalidValue    = errors.New("invalid value")
@@ -66,6 +67,9 @@ type cliArg struct {
 
 type Parser struct {
 	programName string
+	version      string
+	versionShort string
+	versionExtra string
 	args        []*cliArg
 	rules       []cliRule
 	initErr     error 
@@ -434,6 +438,10 @@ func (p *Parser) PrintHelp() {
 
 	descWidth := 50
 
+	if p.version != "" {
+		fmt.Printf("%s v%s\n\n", prog, p.version)
+	}
+
 	fmt.Printf("Usage: %s [OPTIONS]", prog)
 
 	for _, a := range p.args {
@@ -480,6 +488,16 @@ func (p *Parser) PrintHelp() {
 
 	fmt.Println("Options:")
 	printWrappedDesc("  -h, --help", maxLen,2, "Display this help message", descWidth)
+
+	if p.version != "" {
+		var vBuf string
+		if p.versionShort != "" {
+			vBuf = fmt.Sprintf("  %s, --version", p.versionShort)
+		} else {
+			vBuf = "      --version"
+		}
+		printWrappedDesc(vBuf, maxLen, 2, "Display version information", descWidth)
+	}
 
 	for _, a := range p.args {
 		if a.isPositional {
@@ -663,6 +681,26 @@ func (p *Parser) Parse(args []string) error {
 		}
 	}
 
+	if p.version != "" {
+		for _, token := range args {
+			isVer := (token == "--version")
+			if !isVer && p.versionShort != "" && token == p.versionShort {
+				isVer = true
+			}
+			if isVer {
+				prog := filepath.Base(p.programName)
+				if prog == "" || prog == "." {
+					prog = "program"
+				}
+				fmt.Printf("%s %s\n", prog, p.version)
+				if p.versionExtra != "" {
+					fmt.Println(p.versionExtra)
+				}
+				return ErrVersionRequested
+			}
+		}
+	}
+
 	stopFlags := false
 	currentPosIndex := 0
 
@@ -839,4 +877,14 @@ func (p *Parser) Parse(args []string) error {
 	}
 
 	return nil
+}
+
+func (p *Parser) SetVersion(version, sh, extraInfo string) {
+	p.version = version
+	p.versionExtra = extraInfo
+	if strings.TrimSpace(sh) != "" {
+		p.versionShort = normalizeShort(sh)
+	} else {
+		p.versionShort = ""
+	}
 }
