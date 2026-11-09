@@ -465,9 +465,21 @@ func (arg *cliArg) checkChoice(valStr string) bool {
 	return false
 }
 
+
+// countChoices returns the total number of allowed choices defined for the argument
+func (arg *cliArg) countChoices() int {
+	if arg.choices == "" {
+		return 0
+	}
+	if arg.argType == TypeChar && !strings.ContainsAny(arg.choices, ",|") {
+		return len(arg.choices)
+	}
+	return len(splitTokens(arg.choices))
+}
+
 // formatTypeHint renders the CLI usage placeholder or choice summary for the argument
 func (arg *cliArg) formatTypeHint() string {
-	if arg.choices != "" {
+	if arg.choices != "" && len(arg.choiceHelps) < arg.countChoices() {
 		return fmt.Sprintf(" {%s}", arg.choices)
 	}
 	switch arg.argType {
