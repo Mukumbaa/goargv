@@ -235,7 +235,7 @@ func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error {
 
 	if !arg.choiceExists(choice) {
 		err := fmt.Errorf("%w: choice '%s' is not valid for argument '%s' (allowed: [%s])",
-			ErrInvalidValue, choice, arg.displayName(), arg.choices)
+		ErrInvalidValue, choice, arg.displayName(), arg.choices)
 		if p.initErr == nil {
 			p.initErr = err
 		}
@@ -640,7 +640,7 @@ func (p *Parser) assignVal(arg *cliArg, valStr, flagName string) error {
 			label = "positional argument"
 		}
 		return fmt.Errorf("%w: invalid choice '%s' for %s '%s' (allowed: [%s])",
-			ErrInvalidValue, valStr, label, flagName, arg.choices)
+		ErrInvalidValue, valStr, label, flagName, arg.choices)
 	}
 
 	return nil
@@ -668,6 +668,21 @@ func (p *Parser) Parse(args []string) error {
 			}
 
 			if inspect != "" {
+				if p.version != "" && (inspect == "version" || inspect == "--version" || 
+				(p.versionShort != "" && (inspect == p.versionShort || inspect == strings.TrimPrefix(p.versionShort, "-")))) {
+					sh := "None"
+					if p.versionShort != "" {
+						sh = p.versionShort
+					}
+
+					fmt.Printf("%-23s%s\n", "Short flag:", sh)
+					fmt.Printf("%-23s%s\n", "Long flag:", "--version")
+					fmt.Printf("%-23s%v\n", "Value required:", false)
+					fmt.Printf("%-23s%v\n", "Mandatory:", false)
+					fmt.Printf("\nDescription:\n")
+					printWrappedDesc("", 2, 0, "Display version information", 50)
+					return ErrHelpRequested
+				}
 				if found := p.findArg(inspect); found != nil {
 					p.PrintSingleHelp(found)
 				} else {
@@ -850,7 +865,7 @@ func (p *Parser) Parse(args []string) error {
 			}
 			if len(setFlags) > 1 {
 				return fmt.Errorf("%w: mutually exclusive flags in group [%s] cannot be used together (conflicting: '%s' and '%s')",
-					ErrMutualExclusion, rule.target, setFlags[0], setFlags[1])
+				ErrMutualExclusion, rule.target, setFlags[0], setFlags[1])
 			}
 		} else if rule.ruleType == ruleDependency {
 			target := p.findArg(rule.target)
@@ -860,7 +875,7 @@ func (p *Parser) Parse(args []string) error {
 					dep := p.findArg(req)
 					if dep == nil || !dep.isSet {
 						return fmt.Errorf("%w: flag '%s' requires '%s' to be set",
-							ErrDependency, target.displayName(), req)
+						ErrDependency, target.displayName(), req)
 					}
 				}
 			}
