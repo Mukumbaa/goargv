@@ -492,7 +492,9 @@ func (a *cliArg) formatLongDisplay() string {
 		return ""
 	}
 	if a.argType == TypeBool && strings.HasPrefix(a.longFlag, "--") && !strings.HasPrefix(a.longFlag, "--no-") {
-		return "--[no-]" + strings.TrimPrefix(a.longFlag, "--")
+		if a.target != nil && *(a.target.(*bool)) {
+			return "--[no-]" + strings.TrimPrefix(a.longFlag, "--")
+		}
 	}
 	return a.longFlag
 }
@@ -517,7 +519,7 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 		}
 		lng := "None"
 		if arg.longFlag != "" {
-			if arg.argType == TypeBool && strings.HasPrefix(arg.longFlag, "--") && !strings.HasPrefix(arg.longFlag, "--no-") {
+			if arg.argType == TypeBool && strings.HasPrefix(arg.longFlag, "--") && !strings.HasPrefix(arg.longFlag, "--no-") && arg.target != nil && *(arg.target.(*bool)) {
 				lng = fmt.Sprintf("%s (negation: --no-%s)", arg.longFlag, strings.TrimPrefix(arg.longFlag, "--"))
 			} else {
 				lng = arg.longFlag
