@@ -59,6 +59,7 @@ type cliArg struct {
 	choices      string
 	choiceHelps  []cliChoiceHelp
 	envVar       string
+	defaultVal   string
 	argType      CliType
 	target       any
 	isPositional bool
@@ -122,43 +123,28 @@ func (p *Parser) getEffectiveEnv(a *cliArg) string {
 	return strings.ToUpper(p.envPrefix + "_" + clean)
 }
 
-// formatDefaultValue returns a formatted default value string based on the bound target's initial state
-func (p *Parser) formatDefaultValue(a *cliArg) string {
+// SetDefault sets an explicit default value, assigns it to the bound target, and formats it in help
+func (p *Parser) SetDefault(flagOrName, defaultVal string) error {
 	if p == nil {
 		panic("goargv: Parser instance is nil")
 	}
-	if a.required || a.target == nil {
-		return ""
+	arg := p.findArg(flagOrName)
+	if arg == nil {
+		err := fmt.Errorf("%w: argument '%s' not found for default value", ErrUnknownFlag, flagOrName)
+		if p.initErr == nil {
+			p.initErr = err
+		}
+		return err
 	}
-	switch a.argType {
-	case TypeStr:
-		v := *(a.target.(*string))
-		if v != "" {
-			clean := strings.ReplaceAll(v, "\n", `\n`)
-			clean = strings.ReplaceAll(clean, "\t", `\t`)
-			return fmt.Sprintf(" [default: %s]", clean)
+	arg.defaultVal = defaultVal
+	if err := p.assignVal(arg, defaultVal, flagOrName); err != nil {
+		if p.initErr == nil {
+			p.initErr = err
 		}
-	case TypeInt:
-		v := *(a.target.(*int))
-		if v != 0 {
-			return fmt.Sprintf(" [default: %d]", v)
-		}
-	case TypeFloat:
-		v := *(a.target.(*float64))
-		if v != 0.0 {
-			return fmt.Sprintf(" [default: %g]", v)
-		}
-	case TypeChar:
-		v := *(a.target.(*byte))
-		if v > 32 && v <= 126 {
-			return fmt.Sprintf(" [default: %c]", v)
-		}
-	case TypeBool:
-		if *(a.target.(*bool)) {
-			return " [default: true]"
-		}
+		return err
 	}
-	return ""
+	arg.isSet = false
+	return nil
 }
 
 // normalizeShort ensures that a short flag begins with a single hyphen
@@ -378,7 +364,7 @@ func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error {
 
 	if !arg.choiceExists(choice) {
 		err := fmt.Errorf("%w: choice '%s' is not valid for argument '%s' (allowed: [%s])",
-			ErrInvalidValue, choice, arg.displayName(), arg.choices)
+		ErrInvalidValue, choice, arg.displayName(), arg.choices)
 		if p.initErr == nil {
 			p.initErr = err
 		}
@@ -453,18 +439,21 @@ func (arg *cliArg) checkChoice(valStr string) bool {
 				return true
 			}
 		case TypeInt:
-			if v, err := strconv.Atoi(token); err == nil && v == *(arg.target.(*int)) {
+			cv, err1 := strconv.Atoi(token)
+			vv, err2 := strconv.Atoi(valStr)
+			if err1 == nil && err2 == nil && cv == vv {
 				return true
 			}
 		case TypeFloat:
-			if v, err := strconv.ParseFloat(token, 64); err == nil && v == *(arg.target.(*float64)) {
+			cv, err1 := strconv.ParseFloat(token, 64)
+			vv, err2 := strconv.ParseFloat(valStr, 64)
+			if err1 == nil && err2 == nil && cv == vv {
 				return true
 			}
 		}
 	}
 	return false
 }
-
 
 // countChoices returns the total number of allowed choices defined for the argument
 func (arg *cliArg) countChoices() int {
@@ -511,15 +500,14 @@ func (a *cliArg) formatLongDisplay() string {
 	return a.longFlag
 }
 
-// PrintSingleHelp prints a detailed view of a single argument's configuration and choices
-func (p *Parser) PrintSingleHelp(arg *cliArg) {
+// printSingleHelp prints a detailed view of a single argument's configuration and choices
+func (p *Parser) printSingleHelp(arg *cliArg) {
 	if p == nil {
 		panic("goargv: Parser instance is nil")
 	}
 	descWidth := 50
 
 	effEnv := p.getEffectiveEnv(arg)
-	defVal := p.formatDefaultValue(arg)
 
 	if arg.isPositional {
 		fmt.Fprintf(p.out, "%-23s<%s>\n", "Positional argument:", arg.displayName())
@@ -543,11 +531,8 @@ func (p *Parser) PrintSingleHelp(arg *cliArg) {
 		fmt.Fprintf(p.out, "%-23s%v\n", "Value required:", valReq)
 		fmt.Fprintf(p.out, "%-23s%v\n", "Mandatory:", arg.required)
 	}
-	if defVal != "" {
-		clean := strings.TrimSpace(defVal)
-		clean = strings.TrimPrefix(clean, "[default: ")
-		clean = strings.TrimSuffix(clean, "]")
-		fmt.Fprintf(p.out, "%-23s%s\n", "Default:", clean)
+	if arg.defaultVal != "" {
+		fmt.Fprintf(p.out, "%-23s%s\n", "Default:", arg.defaultVal)
 	}
 	if effEnv != "" {
 		fmt.Fprintf(p.out, "%-23s%s\n", "Environment variable:", effEnv)
@@ -718,7 +703,10 @@ func (p *Parser) PrintHelp() {
 		if a.required {
 			reqStr = " [required]"
 		}
-		defStr := p.formatDefaultValue(a)
+		defStr := ""
+		if a.defaultVal != "" {
+			defStr = fmt.Sprintf(" [default: %s]", a.defaultVal)
+		}
 		envStr := ""
 		effEnv := p.getEffectiveEnv(a)
 		if effEnv != "" {
@@ -770,7 +758,10 @@ func (p *Parser) PrintHelp() {
 			if a.required {
 				reqStr = " [required]"
 			}
-			defStr := p.formatDefaultValue(a)
+			defStr := ""
+			if a.defaultVal != "" {
+				defStr = fmt.Sprintf(" [default: %s]", a.defaultVal)
+			}
 			effEnv := p.getEffectiveEnv(a)
 			envStr := ""
 			if effEnv != "" {
@@ -814,36 +805,46 @@ func (p *Parser) findFlag(flag string, isShort bool) *cliArg {
 	return nil
 }
 
-// assignVal parses a string literal and assigns it to the argument's destination pointer
+// assignVal parses a string literal, validates it, and only then assigns it to the argument's destination pointer
 func (p *Parser) assignVal(arg *cliArg, valStr, flagName string) error {
 	if p == nil {
 		panic("goargv: Parser instance is nil")
 	}
-	arg.isSet = true
+
+	var (
+		boolVal  bool
+		charVal  byte
+		intVal   int
+		floatVal float64
+	)
 
 	switch arg.argType {
-	case TypeRest:
-		ptr := arg.target.(*[]string)
-		*ptr = append(*ptr, valStr)
+	case TypeBool:
+		switch strings.ToLower(valStr) {
+		case "1", "true", "yes", "on":
+			boolVal = true
+		case "0", "false", "no", "off":
+			boolVal = false
+		default:
+			return fmt.Errorf("%w: invalid boolean value '%s' for flag '%s'", ErrInvalidValue, valStr, flagName)
+		}
 	case TypeChar:
 		if len(valStr) != 1 {
-			return fmt.Errorf("%w: invalid character value '%s' for flag '%s' (expected 1 char)", ErrInvalidValue, valStr, flagName)
+			return fmt.Errorf("%w: invalid character value '%s' for flag '%s' (expected exactly 1 ASCII byte)", ErrInvalidValue, valStr, flagName)
 		}
-		*(arg.target.(*byte)) = valStr[0]
-	case TypeStr:
-		*(arg.target.(*string)) = valStr
+		charVal = valStr[0]
 	case TypeInt:
 		v, err := strconv.Atoi(valStr)
 		if err != nil {
 			return fmt.Errorf("%w: invalid integer value '%s' for flag '%s'", ErrInvalidValue, valStr, flagName)
 		}
-		*(arg.target.(*int)) = v
+		intVal = v
 	case TypeFloat:
 		v, err := strconv.ParseFloat(valStr, 64)
 		if err != nil {
 			return fmt.Errorf("%w: invalid floating-point value '%s' for flag '%s'", ErrInvalidValue, valStr, flagName)
 		}
-		*(arg.target.(*float64)) = v
+		floatVal = v
 	}
 
 	if !arg.checkChoice(valStr) {
@@ -855,6 +856,22 @@ func (p *Parser) assignVal(arg *cliArg, valStr, flagName string) error {
 			ErrInvalidValue, valStr, label, flagName, arg.choices)
 	}
 
+	switch arg.argType {
+	case TypeBool:
+		*(arg.target.(*bool)) = boolVal
+	case TypeRest:
+		ptr := arg.target.(*[]string)
+		*ptr = append(*ptr, valStr)
+	case TypeChar:
+		*(arg.target.(*byte)) = charVal
+	case TypeStr:
+		*(arg.target.(*string)) = valStr
+	case TypeInt:
+		*(arg.target.(*int)) = intVal
+	case TypeFloat:
+		*(arg.target.(*float64)) = floatVal
+	}
+	arg.isSet = true
 	return nil
 }
 
@@ -880,6 +897,10 @@ func (p *Parser) Parse(args []string) error {
 
 	for _, a := range p.args {
 		a.isSet = false
+		if a.defaultVal != "" {
+			_ = p.assignVal(a, a.defaultVal, a.displayName())
+			a.isSet = false
+		}
 		if a.argType == TypeRest && a.target != nil {
 			*(a.target.(*[]string)) = nil
 		}
@@ -906,27 +927,27 @@ func (p *Parser) Parse(args []string) error {
 		}
 	}
 
+	scanEnd := len(args)
 	for i, token := range args {
+		if token == "--" {
+			scanEnd = i
+			break
+		}
+	}
+	scanArgs := args[:scanEnd]
+
+	for i, token := range scanArgs {
 		if token == "-h" || token == "--help" {
 			var inspect string
-			candidate := ""
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				candidate = args[i+1]
-			} else if i > 0 && !strings.HasPrefix(args[i-1], "-") {
-				candidate = args[i-1]
-			}
-
-			if candidate != "" {
-				isVer := p.version != "" && (candidate == "version" || candidate == "--version" ||
-					(p.versionShort != "" && (candidate == p.versionShort || candidate == strings.TrimPrefix(p.versionShort, "-"))))
-				if isVer || p.findArg(candidate) != nil {
-					inspect = candidate
-				}
+			// Ispeziona solo in avanti
+			if i+1 < len(scanArgs) && !strings.HasPrefix(scanArgs[i+1], "-") {
+				inspect = scanArgs[i+1]
 			}
 
 			if inspect != "" {
-				if p.version != "" && (inspect == "version" || inspect == "--version" ||
-					(p.versionShort != "" && (inspect == p.versionShort || inspect == strings.TrimPrefix(p.versionShort, "-")))) {
+				isVer := p.version != "" && (inspect == "version" || inspect == "--version" ||
+				(p.versionShort != "" && (inspect == p.versionShort || inspect == strings.TrimPrefix(p.versionShort, "-"))))
+				if isVer {
 					sh := "None"
 					if p.versionShort != "" {
 						sh = p.versionShort
@@ -941,8 +962,9 @@ func (p *Parser) Parse(args []string) error {
 					return ErrHelpRequested
 				}
 				if found := p.findArg(inspect); found != nil {
-					p.PrintSingleHelp(found)
+					p.printSingleHelp(found)
 				} else {
+					// Ora raggiungibile se l'argomento cercato non esiste
 					fmt.Fprintf(p.out, "Argument '%s' not recognized.\n\n", inspect)
 					p.PrintHelp()
 				}
@@ -954,7 +976,7 @@ func (p *Parser) Parse(args []string) error {
 	}
 
 	if p.version != "" {
-		for _, token := range args {
+		for _, token := range scanArgs {
 			isVer := (token == "--version")
 			if !isVer && p.versionShort != "" && token == p.versionShort {
 				isVer = true
@@ -1064,7 +1086,7 @@ func (p *Parser) Parse(args []string) error {
 
 			valStr := inlineVal
 			if !hasInline {
-				if i+1 >= len(args) || (strings.HasPrefix(args[i+1], "-") && !isNegativeNumber(args[i+1])) {
+				if i+1 >= len(args) || (strings.HasPrefix(args[i+1], "-") && args[i+1] != "-" && !isNegativeNumber(args[i+1])) {
 					return fmt.Errorf("%w: flag '%s' requires a value", ErrMissingValue, flagName)
 				}
 				i++
@@ -1098,8 +1120,8 @@ func (p *Parser) Parse(args []string) error {
 					valStr = string(tokenRunes[c+1:])
 					c = len(tokenRunes)
 				} else {
-					if i+1 >= len(args) || (strings.HasPrefix(args[i+1], "-") && !isNegativeNumber(args[i+1])) {
-						return fmt.Errorf("%w: flag '%s' requires a value", singleSh)
+					if i+1 >= len(args) || (strings.HasPrefix(args[i+1], "-") && args[i+1] != "-" && !isNegativeNumber(args[i+1])) {
+						return fmt.Errorf("%w: flag '%s' requires a value", ErrMissingValue, singleSh)
 					}
 					i++
 					valStr = args[i]
@@ -1117,10 +1139,15 @@ func (p *Parser) Parse(args []string) error {
 		if !arg.isSet && effEnv != "" {
 			if envVal, ok := os.LookupEnv(effEnv); ok && envVal != "" {
 				if arg.argType == TypeBool {
-					lower := strings.ToLower(envVal)
-					if lower == "1" || lower == "true" || lower == "yes" || lower == "on" {
+					switch strings.ToLower(envVal) {
+					case "1", "true", "yes", "on":
 						*(arg.target.(*bool)) = true
 						arg.isSet = true
+					case "0", "false", "no", "off":
+						*(arg.target.(*bool)) = false
+						arg.isSet = true
+					default:
+						return fmt.Errorf("%w: invalid boolean value '%s' in environment variable '%s'", ErrInvalidValue, envVal, effEnv)
 					}
 				} else if arg.argType == TypeCount {
 					if c, err := strconv.Atoi(envVal); err == nil {
@@ -1147,7 +1174,7 @@ func (p *Parser) Parse(args []string) error {
 			}
 			if len(setFlags) > 1 {
 				return fmt.Errorf("%w: mutually exclusive flags in group [%s] cannot be used together (conflicting: '%s' and '%s')",
-					ErrMutualExclusion, rule.target, setFlags[0], setFlags[1])
+				ErrMutualExclusion, rule.target, setFlags[0], setFlags[1])
 			}
 		} else if rule.ruleType == ruleDependency {
 			target := p.findArg(rule.target)
@@ -1157,7 +1184,7 @@ func (p *Parser) Parse(args []string) error {
 					dep := p.findArg(req)
 					if dep == nil || !dep.isSet {
 						return fmt.Errorf("%w: flag '%s' requires '%s' to be set",
-							ErrDependency, target.displayName(), req)
+						ErrDependency, target.displayName(), req)
 					}
 				}
 			}
