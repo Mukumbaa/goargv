@@ -60,6 +60,7 @@ type cliArg struct {
 	choiceHelps  []cliChoiceHelp
 	envVar       string
 	defaultVal   string
+	hasDefault   bool
 	argType      CliType
 	target       any
 	isPositional bool
@@ -137,6 +138,7 @@ func (p *Parser) SetDefault(flagOrName, defaultVal string) error {
 		return err
 	}
 	arg.defaultVal = defaultVal
+	arg.hasDefault = true
 	if err := p.assignVal(arg, defaultVal, flagOrName); err != nil {
 		if p.initErr == nil {
 			p.initErr = err
@@ -202,6 +204,13 @@ func (p *Parser) addArg(name, sh, lng string, t CliType, target any, required, i
 			displayName = name
 		}
 		panic(fmt.Sprintf("goargv: target pointer for argument '%s' cannot be nil", displayName))
+	}
+	if isPos {
+		for _, a := range p.args {
+			if a.isPositional && a.argType == TypeRest {
+				panic(fmt.Sprintf("goargv: cannot bind positional argument '%s' after a rest argument", name))
+			}
+		}
 	}
 	p.args = append(p.args, &cliArg{
 		name:         name,
@@ -487,6 +496,30 @@ func (arg *cliArg) formatTypeHint() string {
 	}
 }
 
+// formatDefaultDisplay converte caratteri non visibili o spazi in sequenze leggibili per l'help
+func formatDefaultDisplay(s string) string {
+	if s == "" {
+		return `""`
+	}
+	if s == " " {
+		return `' '`
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\n':
+			b.WriteString(`\n`)
+		case '\t':
+			b.WriteString(`\t`)
+		case '\r':
+			b.WriteString(`\r`)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // formatLongDisplay formats the long flag label, adding --[no-] annotations for boolean switches
 func (a *cliArg) formatLongDisplay() string {
 	if a.longFlag == "" {
@@ -531,8 +564,8 @@ func (p *Parser) printSingleHelp(arg *cliArg) {
 		fmt.Fprintf(p.out, "%-23s%v\n", "Value required:", valReq)
 		fmt.Fprintf(p.out, "%-23s%v\n", "Mandatory:", arg.required)
 	}
-	if arg.defaultVal != "" {
-		fmt.Fprintf(p.out, "%-23s%s\n", "Default:", arg.defaultVal)
+	if arg.hasDefault {
+		fmt.Fprintf(p.out, "%-23s%s\n", "Default:", formatDefaultDisplay(arg.defaultVal))
 	}
 	if effEnv != "" {
 		fmt.Fprintf(p.out, "%-23s%s\n", "Environment variable:", effEnv)
@@ -704,8 +737,8 @@ func (p *Parser) PrintHelp() {
 			reqStr = " [required]"
 		}
 		defStr := ""
-		if a.defaultVal != "" {
-			defStr = fmt.Sprintf(" [default: %s]", a.defaultVal)
+		if a.hasDefault {
+			defStr = fmt.Sprintf(" [default: %s]", formatDefaultDisplay(a.defaultVal))
 		}
 		envStr := ""
 		effEnv := p.getEffectiveEnv(a)
@@ -759,8 +792,8 @@ func (p *Parser) PrintHelp() {
 				reqStr = " [required]"
 			}
 			defStr := ""
-			if a.defaultVal != "" {
-				defStr = fmt.Sprintf(" [default: %s]", a.defaultVal)
+			if a.hasDefault {
+				defStr = fmt.Sprintf(" [default: %s]", formatDefaultDisplay(a.defaultVal))
 			}
 			effEnv := p.getEffectiveEnv(a)
 			envStr := ""
@@ -897,7 +930,7 @@ func (p *Parser) Parse(args []string) error {
 
 	for _, a := range p.args {
 		a.isSet = false
-		if a.defaultVal != "" {
+		if a.hasDefault {
 			_ = p.assignVal(a, a.defaultVal, a.displayName())
 			a.isSet = false
 		}
@@ -939,7 +972,6 @@ func (p *Parser) Parse(args []string) error {
 	for i, token := range scanArgs {
 		if token == "-h" || token == "--help" {
 			var inspect string
-			// Ispeziona solo in avanti
 			if i+1 < len(scanArgs) && !strings.HasPrefix(scanArgs[i+1], "-") {
 				inspect = scanArgs[i+1]
 			}
@@ -964,7 +996,6 @@ func (p *Parser) Parse(args []string) error {
 				if found := p.findArg(inspect); found != nil {
 					p.printSingleHelp(found)
 				} else {
-					// Ora raggiungibile se l'argomento cercato non esiste
 					fmt.Fprintf(p.out, "Argument '%s' not recognized.\n\n", inspect)
 					p.PrintHelp()
 				}
@@ -1118,6 +1149,9 @@ func (p *Parser) Parse(args []string) error {
 				var valStr string
 				if c+1 < len(tokenRunes) {
 					valStr = string(tokenRunes[c+1:])
+					if strings.HasPrefix(valStr, "=") {
+						valStr = strings.TrimPrefix(valStr, "=")
+					}
 					c = len(tokenRunes)
 				} else {
 					if i+1 >= len(args) || (strings.HasPrefix(args[i+1], "-") && args[i+1] != "-" && !isNegativeNumber(args[i+1])) {

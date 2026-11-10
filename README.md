@@ -10,7 +10,7 @@ A zero-dependency command-line argument parser for Go with direct pointer bindin
 - **Direct variable binding**: Binds directly to `*bool`, `*byte`, `*int`, `*float64`, `*string`, and `*[]string`.
 - **Explicit defaults**: Set initial variable values and help-screen tags via `SetDefault`.
 - **Validation**: Value whitelists (`choices`), mutual exclusion groups, and required flag dependencies.
-- **POSIX & GNU syntax**: Short-flag clustering (`-xvf`), inline assignments (`--port=8080`), attached values (`-p8080`), negative numbers (`--offset -12`), and stdin/stdout markers (`-o -`).
+- **POSIX & GNU syntax**: Short-flag clustering (`-xvf`), inline assignments (`--port=8080`), attached values (`-p8080`, `-p=8080`), negative numbers (`--offset -12`), and stdin/stdout markers (`-o -`).
 - **Standard `--` delimiter**: Unambiguously terminates flag parsing.
 - **Environment variables**: Automatic prefix-based resolution (`APP_PORT`) with support for explicit overrides.
 - **Typed sentinel errors**: Check failures with standard `errors.Is(err, goargv.ErrMutualExclusion)`.
@@ -92,7 +92,7 @@ func main() {
 	p.AddExclusive("encrypt, plain")
 	p.AddDependency("key", "encrypt")
 
-	// Positional arguments
+	// Positional arguments (scalar positionals must be bound before rest arguments)
 	p.BindPos("input", &inputFile, true, "", "Input file path")
 	p.BindRest("files", &extraFiles, false, "", "Additional files")
 
@@ -129,7 +129,7 @@ func main() {
 | Inline values | `--port=8080` | Key-value flag syntax. |
 | Boolean negation | `--no-compress`, `--compress=false` | Disables a boolean switch. |
 | Short clusters | `-xvf` | Expands to `-x -v -f`. |
-| Attached values | `-p8080`, `-I/usr/include` | Value attached directly to the short flag. |
+| Attached values | `-p8080`, `-p=8080`, `-I/usr/include` | Value attached directly to the short flag. |
 | Counter flags | `-v`, `-vv`, `-vvv` | Increments an `int` counter. |
 | Negative numbers | `--offset -12` | Negative numeric literals are not parsed as flags. |
 | Stdin/stdout flag | `-o -` | Preserves `-` as a literal value. |
@@ -142,6 +142,15 @@ func main() {
 Multi-command programs can route positional subcommands to dedicated parsers:
 
 ```go
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/Mukumbaa/goargv"
+)
+
 func main() {
 	var cmd string
 
@@ -164,9 +173,19 @@ func main() {
 	switch cmd {
 	case "commit":
 		runCommit(subArgs)
-	case "clone":
-		runClone(subArgs)
 	}
+}
+
+func runCommit(args []string) {
+	var message string
+	p := goargv.New("git commit")
+	p.BindStr("m", "message", &message, true, "", "Commit message")
+
+	if err := p.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "commit: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Committed: %s\n", message)
 }
 ```
 
@@ -193,6 +212,7 @@ func (p *Parser) BindInt(sh, lng string, target *int, required bool, choices, he
 func (p *Parser) BindFloat(sh, lng string, target *float64, required bool, choices, help string)
 func (p *Parser) BindStr(sh, lng string, target *string, required bool, choices, help string)
 
+// Note: BindRest must be called after all scalar positional arguments
 func (p *Parser) BindPos(name string, target *string, required bool, choices, help string)
 func (p *Parser) BindRest(name string, target *[]string, required bool, choices, help string)
 ```
