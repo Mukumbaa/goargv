@@ -31,6 +31,7 @@ const (
 	TypeFloat
 	TypeStr
 	TypeRest
+	TypeStrList
 )
 
 type ruleType int
@@ -61,6 +62,7 @@ type cliArg struct {
 	envVar       string
 	defaultVal   string
 	hasDefault   bool
+	isHidden     bool
 	argType      CliType
 	target       any
 	isPositional bool
@@ -294,6 +296,22 @@ func (p *Parser) BindRest(name string, target *[]string, required bool, choices,
 	p.addArg(name, "", "", TypeRest, target, required, true, choices, help)
 }
 
+// BindStrList binds a slice to collect repeated occurrences of a flag (e.g. -I dir1 -I dir2)
+func (p *Parser) BindStrList(sh, lng string, target *[]string, required bool, choices, help string) {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	if target == nil {
+		displayName := lng
+		if displayName == "" {
+			displayName = sh
+		}
+		panic(fmt.Sprintf("goargv: target pointer for flag '%s' cannot be nil", displayName))
+	}
+	*target = nil
+	p.addArg("", sh, lng, TypeStrList, target, required, false, choices, help)
+}
+
 // findArg searches for an argument by identifier, matching against its name, long flag, or short flag
 func (p *Parser) findArg(ident string) *cliArg {
 	if p == nil {
@@ -329,6 +347,23 @@ func (p *Parser) SetEnv(flagOrName, envVar string) {
 	if a := p.findArg(flagOrName); a != nil {
 		a.envVar = envVar
 	}
+}
+
+// SetHidden marks an argument as hidden so it does not appear in help screens
+func (p *Parser) SetHidden(flagOrName string) error {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	arg := p.findArg(flagOrName)
+	if arg == nil {
+		err := fmt.Errorf("%w: argument '%s' not found to set hidden", ErrUnknownFlag, flagOrName)
+		if p.initErr == nil {
+			p.initErr = err
+		}
+		return err
+	}
+	arg.isHidden = true
+	return nil
 }
 
 // choiceExists reports whether a candidate value belongs to the argument's whitelist of choices
@@ -443,7 +478,7 @@ func (arg *cliArg) checkChoice(valStr string) bool {
 	tokens := splitTokens(arg.choices)
 	for _, token := range tokens {
 		switch arg.argType {
-		case TypeStr, TypeChar, TypeRest:
+		case TypeStr, TypeChar, TypeRest, TypeStrList:
 			if token == valStr {
 				return true
 			}
@@ -483,6 +518,8 @@ func (arg *cliArg) formatTypeHint() string {
 	switch arg.argType {
 	case TypeStr:
 		return " <str>"
+	case TypeStrList:
+		return " <str>..."
 	case TypeInt:
 		return " <int>"
 	case TypeFloat:
@@ -572,16 +609,25 @@ func (p *Parser) printSingleHelp(arg *cliArg) {
 	}
 	if arg.choices != "" {
 		fmt.Fprintf(p.out, "Allowed choices:\n")
-		if len(arg.choiceHelps) > 0 {
-			maxCLen := 0
-			for _, ch := range arg.choiceHelps {
-				if len(ch.choice) > maxCLen {
-					maxCLen = len(ch.choice)
-				}
+		tokens := splitTokens(arg.choices)
+		maxCLen := 0
+		for _, tok := range tokens {
+			if len(tok) > maxCLen {
+				maxCLen = len(tok)
 			}
-			for _, ch := range arg.choiceHelps {
-				prefix := fmt.Sprintf("  %-*s:", maxCLen, ch.choice)
-				printWrappedDesc(p.out, prefix, len(prefix), 1, ch.help, descWidth)
+		}
+		helpMap := make(map[string]string)
+		for _, ch := range arg.choiceHelps {
+			helpMap[ch.choice] = ch.help
+		}
+
+		for _, tok := range tokens {
+			h := helpMap[tok]
+			if h == "" {
+				fmt.Fprintf(p.out, "  %s\n", tok)
+			} else {
+				prefix := fmt.Sprintf("  %-*s:", maxCLen, tok)
+				printWrappedDesc(p.out, prefix, len(prefix), 1, h, descWidth)
 			}
 		}
 	}
@@ -662,7 +708,7 @@ func (p *Parser) PrintHelp() {
 
 	fmt.Fprintf(p.out, "Usage: %s [OPTIONS]", prog)
 	for _, a := range p.args {
-		if a.isPositional {
+		if a.isPositional && !a.isHidden {
 			hint := a.formatTypeHint()
 			if a.choices == "" {
 				hint = ""
@@ -686,7 +732,7 @@ func (p *Parser) PrintHelp() {
 
 	maxLen := 20
 	for _, a := range p.args {
-		if a.isPositional {
+		if a.isPositional || a.isHidden {
 			continue
 		}
 		longDisp := a.formatLongDisplay()
@@ -718,7 +764,7 @@ func (p *Parser) PrintHelp() {
 	}
 
 	for _, a := range p.args {
-		if a.isPositional {
+		if a.isPositional || a.isHidden {
 			continue
 		}
 		longDisp := a.formatLongDisplay()
@@ -764,7 +810,7 @@ func (p *Parser) PrintHelp() {
 
 	hasPos := false
 	for _, a := range p.args {
-		if a.isPositional {
+		if a.isPositional && !a.isHidden {
 			hasPos = true
 			break
 		}
@@ -773,7 +819,7 @@ func (p *Parser) PrintHelp() {
 	if hasPos {
 		fmt.Fprintln(p.out, "\nPositional Arguments:")
 		for _, a := range p.args {
-			if !a.isPositional {
+			if !a.isPositional || a.isHidden {
 				continue
 			}
 			name := a.displayName()
@@ -892,8 +938,11 @@ func (p *Parser) assignVal(arg *cliArg, valStr, flagName string) error {
 	switch arg.argType {
 	case TypeBool:
 		*(arg.target.(*bool)) = boolVal
-	case TypeRest:
+	case TypeRest, TypeStrList:
 		ptr := arg.target.(*[]string)
+		if arg.argType == TypeStrList && !arg.isSet && arg.hasDefault {
+			*ptr = nil
+		}
 		*ptr = append(*ptr, valStr)
 	case TypeChar:
 		*(arg.target.(*byte)) = charVal
@@ -934,7 +983,7 @@ func (p *Parser) Parse(args []string) error {
 			_ = p.assignVal(a, a.defaultVal, a.displayName())
 			a.isSet = false
 		}
-		if a.argType == TypeRest && a.target != nil {
+		if (a.argType == TypeRest || a.argType == TypeStrList) && a.target != nil {
 			*(a.target.(*[]string)) = nil
 		}
 	}
@@ -974,6 +1023,10 @@ func (p *Parser) Parse(args []string) error {
 			var inspect string
 			if i+1 < len(scanArgs) && !strings.HasPrefix(scanArgs[i+1], "-") {
 				inspect = scanArgs[i+1]
+			}else if i > 0 && !strings.HasPrefix(scanArgs[i-1], "-") {
+				if i == len(scanArgs) - 1{
+					inspect = scanArgs[i-1]
+				} 
 			}
 
 			if inspect != "" {
@@ -993,7 +1046,7 @@ func (p *Parser) Parse(args []string) error {
 					printWrappedDesc(p.out, "", 2, 0, "Display version information", 50)
 					return ErrHelpRequested
 				}
-				if found := p.findArg(inspect); found != nil {
+				if found := p.findArg(inspect); found != nil && !found.isHidden {
 					p.printSingleHelp(found)
 				} else {
 					fmt.Fprintf(p.out, "Argument '%s' not recognized.\n\n", inspect)

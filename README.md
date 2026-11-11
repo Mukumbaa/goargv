@@ -14,6 +14,8 @@ A zero-dependency command-line argument parser for Go with direct pointer bindin
 - **Standard `--` delimiter**: Unambiguously terminates flag parsing.
 - **Environment variables**: Automatic prefix-based resolution (`APP_PORT`) with support for explicit overrides.
 - **Typed sentinel errors**: Check failures with standard `errors.Is(err, goargv.ErrMutualExclusion)`.
+- **Repeatable flags**: Collect repeated option occurrences (like `-I dir1 -I dir2`) into string slices via `BindStrList`.
+- **Hidden arguments**: Mark internal or debug flags as hidden via `SetHidden` to omit them from help screens while keeping them fully functional.
 - **Redirectable output**: Inject an arbitrary `io.Writer` via `SetOutput` for headless unit tests.
 
 ---
@@ -215,6 +217,7 @@ func (p *Parser) BindStr(sh, lng string, target *string, required bool, choices,
 // Note: BindRest must be called after all scalar positional arguments
 func (p *Parser) BindPos(name string, target *string, required bool, choices, help string)
 func (p *Parser) BindRest(name string, target *[]string, required bool, choices, help string)
+func (p *Parser) BindStrList(sh, lng string, target *[]string, required bool, choices, help string)
 ```
 
 ### Defaults, Rules & Documentation
@@ -223,6 +226,7 @@ func (p *Parser) BindRest(name string, target *[]string, required bool, choices,
 func (p *Parser) SetDefault(flagOrName, defaultVal string) error
 func (p *Parser) SetEnv(flagOrName, envVar string)
 func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error
+func (p *Parser) SetHidden(flagOrName string) error
 func (p *Parser) AddExclusive(flagsGroup string)
 func (p *Parser) AddDependency(flag, requiresFlags string)
 ```
