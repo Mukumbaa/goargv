@@ -1,0 +1,14 @@
+# Eseguibili e file di build
+/goargv
+/goargv.exe
+*.exe
+*.exe.manifest
+*.dll
+*.so
+*.dylib
+
+# Cartelle e artefatti di build / test
+*.test
+*.out
+/dist/
+/bin/
