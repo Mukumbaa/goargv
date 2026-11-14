@@ -224,7 +224,7 @@ func (p *Parser) BindStrList(sh, lng string, target *[]string, required bool, ch
 
 ```go
 func (p *Parser) SetDefault(flagOrName, defaultVal string) error
-func (p *Parser) SetEnv(flagOrName, envVar string)
+func (p *Parser) SetEnv(flagOrName, envVar string) error
 func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error
 func (p *Parser) SetHidden(flagOrName string) error
 func (p *Parser) AddExclusive(flagsGroup string)

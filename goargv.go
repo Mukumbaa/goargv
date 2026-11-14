@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -62,6 +63,7 @@ type cliArg struct {
 	envVar       string
 	defaultVal   string
 	hasDefault   bool
+	defaultBool  bool
 	isHidden     bool
 	argType      CliType
 	target       any
@@ -139,13 +141,16 @@ func (p *Parser) SetDefault(flagOrName, defaultVal string) error {
 		}
 		return err
 	}
-	arg.defaultVal = defaultVal
-	arg.hasDefault = true
 	if err := p.assignVal(arg, defaultVal, flagOrName); err != nil {
 		if p.initErr == nil {
 			p.initErr = err
 		}
 		return err
+	}
+	arg.defaultVal = defaultVal
+	arg.hasDefault = true
+	if arg.argType == TypeBool {
+		arg.defaultBool = *(arg.target.(*bool))
 	}
 	arg.isSet = false
 	return nil
@@ -214,12 +219,17 @@ func (p *Parser) addArg(name, sh, lng string, t CliType, target any, required, i
 			}
 		}
 	}
+	var defBool bool
+	if t == TypeBool {
+		defBool = *(target.(*bool))
+	}
 	p.args = append(p.args, &cliArg{
 		name:         name,
 		shortFlag:    normalizeShort(sh),
 		longFlag:     normalizeLong(lng),
 		argType:      t,
 		target:       target,
+		defaultBool:  defBool,
 		required:     required,
 		isPositional: isPos,
 		choices:      choices,
@@ -340,13 +350,20 @@ func (p *Parser) findArg(ident string) *cliArg {
 }
 
 // SetEnv binds a specific environment variable name to an existing argument or flag
-func (p *Parser) SetEnv(flagOrName, envVar string) {
+func (p *Parser) SetEnv(flagOrName, envVar string) error {
 	if p == nil {
 		panic("goargv: Parser instance is nil")
 	}
-	if a := p.findArg(flagOrName); a != nil {
-		a.envVar = envVar
+	arg := p.findArg(flagOrName)
+	if arg == nil {
+		err := fmt.Errorf("%w: argument '%s' not found to set environment variable", ErrUnknownFlag, flagOrName)
+		if p.initErr == nil {
+			p.initErr = err
+		}
+		return err
 	}
+	arg.envVar = envVar
+	return nil
 }
 
 // SetHidden marks an argument as hidden so it does not appear in help screens
@@ -408,7 +425,7 @@ func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error {
 
 	if !arg.choiceExists(choice) {
 		err := fmt.Errorf("%w: choice '%s' is not valid for argument '%s' (allowed: [%s])",
-		ErrInvalidValue, choice, arg.displayName(), arg.choices)
+			ErrInvalidValue, choice, arg.displayName(), arg.choices)
 		if p.initErr == nil {
 			p.initErr = err
 		}
@@ -466,13 +483,28 @@ func splitTokens(s string) []string {
 	return res
 }
 
+// getChoiceTokens returns the list of allowed choice tokens, handling single-char strings without delimiters
+func (arg *cliArg) getChoiceTokens() []string {
+	if arg.choices == "" {
+		return nil
+	}
+	if arg.argType == TypeChar && !strings.ContainsAny(arg.choices, ",|") {
+		tokens := make([]string, 0, len(arg.choices))
+		for i := 0; i < len(arg.choices); i++ {
+			tokens = append(tokens, string(arg.choices[i]))
+		}
+		return tokens
+	}
+	return splitTokens(arg.choices)
+}
+
 // checkChoice validates if the assigned string fits within the argument's configured choice set
 func (arg *cliArg) checkChoice(valStr string) bool {
 	if arg.choices == "" {
 		return true
 	}
 	if arg.argType == TypeChar && !strings.ContainsAny(arg.choices, ",|") {
-		return strings.Contains(arg.choices, valStr)
+		return len(valStr) == 1 && strings.Contains(arg.choices, valStr)
 	}
 
 	tokens := splitTokens(arg.choices)
@@ -563,7 +595,7 @@ func (a *cliArg) formatLongDisplay() string {
 		return ""
 	}
 	if a.argType == TypeBool && strings.HasPrefix(a.longFlag, "--") && !strings.HasPrefix(a.longFlag, "--no-") {
-		if a.target != nil && *(a.target.(*bool)) {
+		if a.defaultBool {
 			return "--[no-]" + strings.TrimPrefix(a.longFlag, "--")
 		}
 	}
@@ -589,7 +621,7 @@ func (p *Parser) printSingleHelp(arg *cliArg) {
 		}
 		lng := "None"
 		if arg.longFlag != "" {
-			if arg.argType == TypeBool && strings.HasPrefix(arg.longFlag, "--") && !strings.HasPrefix(arg.longFlag, "--no-") && arg.target != nil && *(arg.target.(*bool)) {
+			if arg.argType == TypeBool && strings.HasPrefix(arg.longFlag, "--") && !strings.HasPrefix(arg.longFlag, "--no-") && arg.defaultBool {
 				lng = fmt.Sprintf("%s (negation: --no-%s)", arg.longFlag, strings.TrimPrefix(arg.longFlag, "--"))
 			} else {
 				lng = arg.longFlag
@@ -609,11 +641,11 @@ func (p *Parser) printSingleHelp(arg *cliArg) {
 	}
 	if arg.choices != "" {
 		fmt.Fprintf(p.out, "Allowed choices:\n")
-		tokens := splitTokens(arg.choices)
+		tokens := arg.getChoiceTokens()
 		maxCLen := 0
 		for _, tok := range tokens {
-			if len(tok) > maxCLen {
-				maxCLen = len(tok)
+			if l := utf8.RuneCountInString(tok); l > maxCLen {
+				maxCLen = l
 			}
 		}
 		helpMap := make(map[string]string)
@@ -626,8 +658,9 @@ func (p *Parser) printSingleHelp(arg *cliArg) {
 			if h == "" {
 				fmt.Fprintf(p.out, "  %s\n", tok)
 			} else {
-				prefix := fmt.Sprintf("  %-*s:", maxCLen, tok)
-				printWrappedDesc(p.out, prefix, len(prefix), 1, h, descWidth)
+				pad := maxCLen - utf8.RuneCountInString(tok)
+				prefix := fmt.Sprintf("  %s%*s:", tok, pad, "")
+				printWrappedDesc(p.out, prefix, utf8.RuneCountInString(prefix), 1, h, descWidth)
 			}
 		}
 	}
@@ -641,7 +674,7 @@ func (p *Parser) printSingleHelp(arg *cliArg) {
 
 // printWrappedDesc prints an indented label and word-wraps the accompanying description text
 func printWrappedDesc(w io.Writer, leftCol string, indent int, gutter int, text string, descWidth int) {
-	leftLen := len(leftCol)
+	leftLen := utf8.RuneCountInString(leftCol)
 
 	if leftLen > 0 {
 		fmt.Fprint(w, leftCol)
@@ -669,7 +702,8 @@ func printWrappedDesc(w io.Writer, leftCol string, indent int, gutter int, text 
 	firstWord := true
 
 	for _, word := range words {
-		needed := len(word)
+		wLen := utf8.RuneCountInString(word)
+		needed := wLen
 		if !firstWord {
 			needed += 1
 		}
@@ -685,7 +719,7 @@ func printWrappedDesc(w io.Writer, leftCol string, indent int, gutter int, text 
 			lineLen++
 		}
 		fmt.Fprint(w, word)
-		lineLen += len(word)
+		lineLen += wLen
 		firstWord = false
 	}
 	fmt.Fprintln(w)
@@ -738,13 +772,13 @@ func (p *Parser) PrintHelp() {
 		longDisp := a.formatLongDisplay()
 		length := 2
 		if a.shortFlag != "" && longDisp != "" {
-			length += len(a.shortFlag) + 2 + len(longDisp)
+			length += utf8.RuneCountInString(a.shortFlag) + 2 + utf8.RuneCountInString(longDisp)
 		} else if a.shortFlag != "" {
-			length += len(a.shortFlag)
+			length += utf8.RuneCountInString(a.shortFlag)
 		} else if longDisp != "" {
-			length += 6 + len(longDisp)
+			length += 6 + utf8.RuneCountInString(longDisp)
 		}
-		length += len(a.formatTypeHint())
+		length += utf8.RuneCountInString(a.formatTypeHint())
 		if length > maxLen && length < 42 {
 			maxLen = length
 		}
@@ -798,7 +832,7 @@ func (p *Parser) PrintHelp() {
 		if len(a.choiceHelps) > 0 {
 			for _, ch := range a.choiceHelps {
 				prefix := fmt.Sprintf("%*s  %s:", maxLen, "", ch.choice)
-				choiceIndent := len(prefix)
+				choiceIndent := utf8.RuneCountInString(prefix)
 				helpWidth := descWidth - 6
 				if helpWidth < 30 {
 					helpWidth = 30
@@ -853,7 +887,7 @@ func (p *Parser) PrintHelp() {
 			if len(a.choiceHelps) > 0 {
 				for _, ch := range a.choiceHelps {
 					prefix := fmt.Sprintf("%*s  %s:", maxLen, "", ch.choice)
-					choiceIndent := len(prefix)
+					choiceIndent := utf8.RuneCountInString(prefix)
 					helpWidth := descWidth - 6
 					if helpWidth < 30 {
 						helpWidth = 30
@@ -912,7 +946,7 @@ func (p *Parser) assignVal(arg *cliArg, valStr, flagName string) error {
 			return fmt.Errorf("%w: invalid character value '%s' for flag '%s' (expected exactly 1 ASCII byte)", ErrInvalidValue, valStr, flagName)
 		}
 		charVal = valStr[0]
-	case TypeInt:
+	case TypeInt, TypeCount:
 		v, err := strconv.Atoi(valStr)
 		if err != nil {
 			return fmt.Errorf("%w: invalid integer value '%s' for flag '%s'", ErrInvalidValue, valStr, flagName)
@@ -940,7 +974,7 @@ func (p *Parser) assignVal(arg *cliArg, valStr, flagName string) error {
 		*(arg.target.(*bool)) = boolVal
 	case TypeRest, TypeStrList:
 		ptr := arg.target.(*[]string)
-		if arg.argType == TypeStrList && !arg.isSet && arg.hasDefault {
+		if !arg.isSet && arg.hasDefault {
 			*ptr = nil
 		}
 		*ptr = append(*ptr, valStr)
@@ -948,7 +982,7 @@ func (p *Parser) assignVal(arg *cliArg, valStr, flagName string) error {
 		*(arg.target.(*byte)) = charVal
 	case TypeStr:
 		*(arg.target.(*string)) = valStr
-	case TypeInt:
+	case TypeInt, TypeCount:
 		*(arg.target.(*int)) = intVal
 	case TypeFloat:
 		*(arg.target.(*float64)) = floatVal
@@ -979,12 +1013,17 @@ func (p *Parser) Parse(args []string) error {
 
 	for _, a := range p.args {
 		a.isSet = false
-		if a.hasDefault {
-			_ = p.assignVal(a, a.defaultVal, a.displayName())
-			a.isSet = false
-		}
 		if (a.argType == TypeRest || a.argType == TypeStrList) && a.target != nil {
 			*(a.target.(*[]string)) = nil
+		}
+		if a.argType == TypeCount && a.target != nil {
+			*(a.target.(*int)) = 0
+		}
+		if a.hasDefault {
+			if err := p.assignVal(a, a.defaultVal, a.displayName()); err != nil {
+				return err
+			}
+			a.isSet = false
 		}
 	}
 
@@ -1023,15 +1062,11 @@ func (p *Parser) Parse(args []string) error {
 			var inspect string
 			if i+1 < len(scanArgs) && !strings.HasPrefix(scanArgs[i+1], "-") {
 				inspect = scanArgs[i+1]
-			}else if i > 0 && !strings.HasPrefix(scanArgs[i-1], "-") {
-				if i == len(scanArgs) - 1{
-					inspect = scanArgs[i-1]
-				} 
 			}
 
 			if inspect != "" {
 				isVer := p.version != "" && (inspect == "version" || inspect == "--version" ||
-				(p.versionShort != "" && (inspect == p.versionShort || inspect == strings.TrimPrefix(p.versionShort, "-"))))
+					(p.versionShort != "" && (inspect == p.versionShort || inspect == strings.TrimPrefix(p.versionShort, "-"))))
 				if isVer {
 					sh := "None"
 					if p.versionShort != "" {
@@ -1225,26 +1260,8 @@ func (p *Parser) Parse(args []string) error {
 		effEnv := p.getEffectiveEnv(arg)
 		if !arg.isSet && effEnv != "" {
 			if envVal, ok := os.LookupEnv(effEnv); ok && envVal != "" {
-				if arg.argType == TypeBool {
-					switch strings.ToLower(envVal) {
-					case "1", "true", "yes", "on":
-						*(arg.target.(*bool)) = true
-						arg.isSet = true
-					case "0", "false", "no", "off":
-						*(arg.target.(*bool)) = false
-						arg.isSet = true
-					default:
-						return fmt.Errorf("%w: invalid boolean value '%s' in environment variable '%s'", ErrInvalidValue, envVal, effEnv)
-					}
-				} else if arg.argType == TypeCount {
-					if c, err := strconv.Atoi(envVal); err == nil {
-						*(arg.target.(*int)) = c
-						arg.isSet = true
-					}
-				} else {
-					if err := p.assignVal(arg, envVal, effEnv); err != nil {
-						return err
-					}
+				if err := p.assignVal(arg, envVal, effEnv); err != nil {
+					return err
 				}
 			}
 		}
@@ -1261,7 +1278,7 @@ func (p *Parser) Parse(args []string) error {
 			}
 			if len(setFlags) > 1 {
 				return fmt.Errorf("%w: mutually exclusive flags in group [%s] cannot be used together (conflicting: '%s' and '%s')",
-				ErrMutualExclusion, rule.target, setFlags[0], setFlags[1])
+					ErrMutualExclusion, rule.target, setFlags[0], setFlags[1])
 			}
 		} else if rule.ruleType == ruleDependency {
 			target := p.findArg(rule.target)
@@ -1271,7 +1288,7 @@ func (p *Parser) Parse(args []string) error {
 					dep := p.findArg(req)
 					if dep == nil || !dep.isSet {
 						return fmt.Errorf("%w: flag '%s' requires '%s' to be set",
-						ErrDependency, target.displayName(), req)
+							ErrDependency, target.displayName(), req)
 					}
 				}
 			}
