@@ -1077,7 +1077,7 @@ func (p *Parser) Parse(args []string) error {
 	for i, token := range scanArgs {
 		if token == "-h" || token == "--help" {
 			var inspect string
-			if i+1 < len(scanArgs) && !strings.HasPrefix(scanArgs[i+1], "-") {
+			if i+1 < len(scanArgs) && scanArgs[i+1] != "-h" && scanArgs[i+1] != "--help" {
 				inspect = scanArgs[i+1]
 			}
 
