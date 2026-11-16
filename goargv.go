@@ -693,26 +693,27 @@ func (p *Parser) printSingleHelp(arg *cliArg) {
 func printWrappedDesc(w io.Writer, leftCol string, indent int, gutter int, text string, descWidth int) {
 	leftLen := utf8.RuneCountInString(leftCol)
 
+	if text == "" {
+		if leftLen > 0 {
+			fmt.Fprintln(w, leftCol)
+		} else {
+			fmt.Fprintln(w)
+		}
+		return
+	}
+
 	if leftLen > 0 {
 		fmt.Fprint(w, leftCol)
-		if leftLen < indent {
+		if leftLen <= indent {
 			fmt.Fprintf(w, "%*s", indent-leftLen+gutter, "")
 		} else {
-			fmt.Fprintf(w, "%*s", gutter, "")
+			fmt.Fprintf(w, "\n%*s", indent+gutter, "")
 		}
 	} else {
 		fmt.Fprintf(w, "%*s", indent+gutter, "")
 	}
 
-	if text == "" {
-		fmt.Fprintln(w)
-		return
-	}
-
 	contIndent := indent + gutter
-	if leftLen > indent {
-		contIndent = leftLen + gutter
-	}
 
 	words := strings.Fields(text)
 	lineLen := 0
