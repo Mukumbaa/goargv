@@ -77,6 +77,7 @@ type Parser struct {
 	version      string
 	versionShort string
 	versionExtra string
+	description  string
 	envPrefix    string
 	out          io.Writer
 	args         []*cliArg
@@ -126,6 +127,14 @@ func (p *Parser) getEffectiveEnv(a *cliArg) string {
 	clean := strings.TrimPrefix(a.longFlag, "--")
 	clean = strings.ReplaceAll(clean, "-", "_")
 	return strings.ToUpper(p.envPrefix + "_" + clean)
+}
+
+// SetDescription sets a summary description of the program displayed in help output
+func (p *Parser) SetDescription(desc string) {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	p.description = strings.TrimSpace(desc)
 }
 
 // SetDefault sets an explicit default value, assigns it to the bound target, and formats it in help
@@ -756,6 +765,10 @@ func (p *Parser) PrintHelp() {
 
 	if p.version != "" {
 		fmt.Fprintf(p.out, "%s v%s\n\n", prog, p.version)
+	}
+
+	if p.description != "" {
+		fmt.Fprintf(p.out, "%s\n\n", p.description)
 	}
 
 	fmt.Fprintf(p.out, "Usage: %s [OPTIONS]", prog)
