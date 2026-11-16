@@ -1,6 +1,9 @@
 package goargv
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // addArg registers an argument definition and checks that its target pointer is valid
 func (p *Parser) addArg(name, sh, lng string, t CliType, target any, required, isPos bool, choices, help string) {

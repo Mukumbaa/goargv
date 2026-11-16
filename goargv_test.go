@@ -37,7 +37,6 @@ func TestBoolNegationAndAllLiterals(t *testing.T) {
 		t.Fatalf("--no-beta failed: err=%v b2=%v", err, b2)
 	}
 
-	// --no- su un flag non booleano NON deve funzionare
 	if err := p.Parse([]string{"--no-str"}); !errors.Is(err, ErrUnknownFlag) {
 		t.Fatalf("expected ErrUnknownFlag for --no-str, got %v", err)
 	}
@@ -64,7 +63,6 @@ func TestEdgeCasesTokensAndTypes(t *testing.T) {
 	p.BindPos("p2", &pos2, false, "", "Pos2")
 	p.BindRest("rest", &rest, false, "", "Rest")
 
-	// Valore con '=', stringa vuota, numeri negativi e scelte numeriche equivalenti ("1" == "1.0")
 	args := []string{
 		"--str=",
 		"-ka=b=c",
@@ -85,17 +83,14 @@ func TestEdgeCasesTokensAndTypes(t *testing.T) {
 			str1, str2, num, flt, ch, pos1, pos2, rest)
 	}
 
-	// -n -.5 è un int invalido (ma viene riconosciuto come numero negativo, non MissingValue)
 	if err := p.Parse([]string{"-n", "-.5", "p1"}); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("expected ErrInvalidValue for '-n -.5', got %v", err)
 	}
 
-	// -n -abc non è un numero negativo -> ErrMissingValue
 	if err := p.Parse([]string{"-n", "-abc", "p1"}); !errors.Is(err, ErrMissingValue) {
 		t.Fatalf("expected ErrMissingValue for '-n -abc', got %v", err)
 	}
 
-	// Char con >1 byte o vuoto
 	if err := p.Parse([]string{"-c", "ab", "p1"}); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("expected ErrInvalidValue for multi-byte char, got %v", err)
 	}
@@ -116,7 +111,6 @@ func TestAtomicityOnParseAndDefaultErrors(t *testing.T) {
 		t.Fatalf("SetDefault failed: %v", err)
 	}
 
-	// Un choice invalido in Parse NON deve sovrascrivere il default esistente (80)
 	if err := p.Parse([]string{"--port", "9999"}); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("expected ErrInvalidValue, got %v", err)
 	}
@@ -124,7 +118,6 @@ func TestAtomicityOnParseAndDefaultErrors(t *testing.T) {
 		t.Fatalf("port was mutated on failed Parse: got %d, want 80", port)
 	}
 
-	// Un SetDefault invalido non deve impostare hasDefault e deve propagare initErr
 	p2 := New("app")
 	p2.BindInt("p", "port", &port, false, "80,443", "Port")
 	if err := p2.SetDefault("port", "not_int"); !errors.Is(err, ErrInvalidValue) {
@@ -158,33 +151,28 @@ func TestEnvInteractionsWithRulesAndLists(t *testing.T) {
 	p.AddExclusive("json, xml")
 	p.AddDependency("auth", "token")
 
-	// 1. Env vuota ("") deve essere ignorata e lasciare il default
 	t.Setenv("MYAPP_PORT", "")
 	if err := p.Parse([]string{}); err != nil || port != 8080 {
 		t.Fatalf("empty env should keep default 8080: err=%v port=%d", err, port)
 	}
 
-	// 2. Conflitto tra CLI (--json) ed Env (MYAPP_XML=true)
 	t.Setenv("MYAPP_XML", "true")
 	if err := p.Parse([]string{"--json"}); !errors.Is(err, ErrMutualExclusion) {
 		t.Fatalf("expected ErrMutualExclusion across CLI+Env, got %v", err)
 	}
 	t.Setenv("MYAPP_XML", "")
 
-	// 3. Dipendenza soddisfatta metà da Env e metà da CLI
 	t.Setenv("MYAPP_TOKEN", "secret")
 	if err := p.Parse([]string{"--auth"}); err != nil || !auth || token != "secret" {
 		t.Fatalf("expected dependency satisfied via Env: err=%v auth=%v token=%q", err, auth, token)
 	}
 
-	// 4. Env invalida per Bool
 	t.Setenv("EXPLICIT_REQ", "invalid_bool")
 	if err := p.Parse([]string{}); !errors.Is(err, ErrInvalidValue) {
 		t.Fatalf("expected ErrInvalidValue for invalid bool env, got %v", err)
 	}
 	t.Setenv("EXPLICIT_REQ", "")
 
-	// 5. TypeStrList da Env sovrascrive il default
 	t.Setenv("MYAPP_INC", "b")
 	if err := p.Parse([]string{}); err != nil || len(inc) != 1 || inc[0] != "b" {
 		t.Fatalf("expected StrList from env to override default: err=%v inc=%v", err, inc)
@@ -196,8 +184,8 @@ func TestHelpLayoutAlignmentAndWrapping(t *testing.T) {
 	var open bool = true
 	var out bytes.Buffer
 
-	p := New("") // deve fare fallback a "program"
-	p.SetOutput(nil) // non deve sovrascrivere con nil
+	p := New("") 
+	p.SetOutput(nil) 
 	p.SetOutput(&out)
 	p.SetVersion("1.0.0", "V", "extra")
 	p.SetDescription("  Tool description here.\nSecond line.  ")
@@ -207,7 +195,6 @@ func TestHelpLayoutAlignmentAndWrapping(t *testing.T) {
 	p.BindStr("", "pdf-margin", &margin, false, "none,narrow,normal,wide", "Page margins with a fairly long description that should wrap cleanly across multiple lines")
 	p.BindStr("", "no-desc", &emptyDesc, false, "", "")
 
-	// Simula un Parse che muta open a false: PrintHelp deve comunque mostrare --[no-]open!
 	if err := p.Parse([]string{"--no-open"}); err != nil || open {
 		t.Fatalf("unexpected parse error: %v", err)
 	}
@@ -222,21 +209,15 @@ func TestHelpLayoutAlignmentAndWrapping(t *testing.T) {
 		t.Fatalf("expected --[no-]open even after target mutated to false:\n%s", helpText)
 	}
 
-	// Verifica il fix maxLen (+4 invece di +6):
-	// La riga lunga <42 più lunga è "      --pdf-format <str>" (24 char).
-	// Con gutter=2, devono esserci ESATTAMENTE 2 spazi tra "<str>" e "Page format".
 	if !strings.Contains(helpText, "      --pdf-format <str>  Page format\n") {
 		t.Fatalf("expected exact 2-space gutter after --pdf-format <str>:\n%s", helpText)
 	}
 
-	// --pdf-margin {none,narrow,normal,wide} supera 41 char -> la descrizione deve andare a capo
-	// allineata alla colonna 26 (24 + 2 spazi)
 	expectedWrap := "      --pdf-margin {none,narrow,normal,wide}\n" + strings.Repeat(" ", 26) + "Page margins"
 	if !strings.Contains(helpText, expectedWrap) {
 		t.Fatalf("expected --pdf-margin description to wrap to next line at col 26:\n%s", helpText)
 	}
 
-	// no-desc ha help == "" -> non deve avere spazi in coda alla riga
 	if !strings.Contains(helpText, "      --no-desc <str>\n") {
 		t.Fatalf("expected no trailing spaces for empty description:\n%s", helpText)
 	}
@@ -261,7 +242,6 @@ func TestSingleHelpLookupModes(t *testing.T) {
 	_ = p.SetChoiceHelp("mode", "a", "Alpha")
 	_ = p.SetHidden("secret")
 
-	// -h --port e -h -p (con trattini!)
 	for _, query := range []string{"--port", "port", "-p", "p"} {
 		out.Reset()
 		if err := p.Parse([]string{"-h", query}); !errors.Is(err, ErrHelpRequested) {
@@ -272,7 +252,6 @@ func TestSingleHelpLookupModes(t *testing.T) {
 		}
 	}
 
-	// -h version / -h -V
 	for _, query := range []string{"version", "--version", "-V"} {
 		out.Reset()
 		if err := p.Parse([]string{"--help", query}); !errors.Is(err, ErrHelpRequested) {
@@ -283,7 +262,6 @@ func TestSingleHelpLookupModes(t *testing.T) {
 		}
 	}
 
-	// -h target (posizionale)
 	out.Reset()
 	if err := p.Parse([]string{"-h", "target"}); !errors.Is(err, ErrHelpRequested) {
 		t.Fatalf("expected ErrHelpRequested, got %v", err)
@@ -292,7 +270,6 @@ func TestSingleHelpLookupModes(t *testing.T) {
 		t.Fatalf("expected positional single help, got:\n%s", out.String())
 	}
 
-	// -h --help non deve dire "not recognized"
 	out.Reset()
 	if err := p.Parse([]string{"-h", "--help"}); !errors.Is(err, ErrHelpRequested) {
 		t.Fatalf("expected ErrHelpRequested, got %v", err)
@@ -301,7 +278,6 @@ func TestSingleHelpLookupModes(t *testing.T) {
 		t.Fatalf("'-h --help' should print full help without error:\n%s", out.String())
 	}
 
-	// -h -- (dopo -- non c'è nulla in scanArgs)
 	out.Reset()
 	if err := p.Parse([]string{"-h", "--", "port"}); !errors.Is(err, ErrHelpRequested) {
 		t.Fatalf("expected ErrHelpRequested, got %v", err)
@@ -355,7 +331,6 @@ func FuzzParse(f *testing.F) {
 		p.BindRest("rest", &rest, false, "", "Rest")
 		p.AddExclusive("open, quiet")
 
-		// Non deve mai andare in panic su nessun input arbitrario
 		_ = p.Parse(strings.Split(a, " "))
 	})
 }
