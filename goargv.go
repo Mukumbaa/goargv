@@ -794,7 +794,7 @@ func (p *Parser) PrintHelp() {
 		} else if a.shortFlag != "" {
 			length += utf8.RuneCountInString(a.shortFlag)
 		} else if longDisp != "" {
-			length += 6 + utf8.RuneCountInString(longDisp)
+			length += 4 + utf8.RuneCountInString(longDisp)
 		}
 		length += utf8.RuneCountInString(a.formatTypeHint())
 		if length > maxLen && length < 42 {
