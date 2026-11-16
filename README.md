@@ -202,6 +202,7 @@ func New(programName string) *Parser
 func (p *Parser) SetOutput(w io.Writer)
 func (p *Parser) SetEnvPrefix(prefix string)
 func (p *Parser) SetVersion(version, sh, extraInfo string)
+func (p *Parser) SetDescription(desc string)
 ```
 
 ### Option Binding
