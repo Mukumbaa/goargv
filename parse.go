@@ -16,11 +16,21 @@ func (p *Parser) Parse(args []string) error {
 	if p.initErr != nil {
 		return p.initErr
 	}
+	p.remainingArgs = nil
 
 	for _, a := range p.args {
 		a.isSet = false
+		if a.argType == TypeBool && a.target != nil {
+			*(a.target.(*bool)) = a.defaultBool
+		}
 		if (a.argType == TypeRest || a.argType == TypeStrList) && a.target != nil {
 			*(a.target.(*[]string)) = nil
+		}
+		if a.argType == TypeIntList && a.target != nil {
+			*(a.target.(*[]int)) = nil
+		}
+		if a.argType == TypeFloatList && a.target != nil {
+			*(a.target.(*[]float64)) = nil
 		}
 		if a.argType == TypeCount && a.target != nil {
 			*(a.target.(*int)) = 0
@@ -55,10 +65,46 @@ func (p *Parser) Parse(args []string) error {
 	}
 
 	scanEnd := len(args)
-	for i, token := range args {
+	for i := 0; i < len(args); i++ {
+		token := args[i]
 		if token == "--" {
 			scanEnd = i
 			break
+		}
+		if p.stopAtPositional {
+			if token == "-h" || token == "--help" {
+				if i+1 < len(args) {
+					scanEnd = i + 2
+				} else {
+					scanEnd = i + 1
+				}
+				break
+			}
+			if !strings.HasPrefix(token, "-") || token == "-" {
+				scanEnd = i
+				break
+			}
+			if strings.HasPrefix(token, "--") {
+				if !strings.Contains(token, "=") {
+					if m := p.findFlag(token, false); m != nil && m.argType != TypeBool && m.argType != TypeCount {
+						i++
+					}
+				}
+			} else {
+				runes := []rune(token)
+				for c := 1; c < len(runes); c++ {
+					m := p.findFlag("-"+string(runes[c]), true)
+					if m == nil {
+						break
+					}
+					if m.argType != TypeBool && m.argType != TypeCount {
+						if c+1 == len(runes) {
+							i++
+						}
+						break
+					}
+				}
+			}
 		}
 	}
 	scanArgs := args[:scanEnd]
@@ -84,7 +130,7 @@ func (p *Parser) Parse(args []string) error {
 					fmt.Fprintf(p.out, "%-23s%v\n", "Value required:", false)
 					fmt.Fprintf(p.out, "%-23s%v\n", "Mandatory:", false)
 					fmt.Fprintf(p.out, "\nDescription:\n")
-					printWrappedDesc(p.out, "", 2, 0, "Display version information", 50)
+					printWrappedDesc(p.out, "", 2, 0, "Display version information", p.getDescWidth(2))
 					return ErrHelpRequested
 				}
 				if found := p.findArg(inspect); found != nil && !found.isHidden {
@@ -147,6 +193,12 @@ func (p *Parser) Parse(args []string) error {
 			if targetPos != nil {
 				if err := p.assignVal(targetPos, token, targetPos.displayName()); err != nil {
 					return err
+				}
+				if p.stopAtPositional {
+					if i+1 < len(args) {
+						p.remainingArgs = args[i+1:]
+					}
+					break
 				}
 				if targetPos.argType != TypeRest {
 					currentPosIndex++
@@ -341,13 +393,13 @@ func (p *Parser) assignVal(arg *cliArg, valStr, flagName string) error {
 			return fmt.Errorf("%w: invalid character value '%s' for flag '%s' (expected exactly 1 ASCII byte)", ErrInvalidValue, valStr, flagName)
 		}
 		charVal = valStr[0]
-	case TypeInt, TypeCount:
+	case TypeInt, TypeCount, TypeIntList:
 		v, err := strconv.Atoi(valStr)
 		if err != nil {
 			return fmt.Errorf("%w: invalid integer value '%s' for flag '%s'", ErrInvalidValue, valStr, flagName)
 		}
 		intVal = v
-	case TypeFloat:
+	case TypeFloat, TypeFloatList:
 		v, err := strconv.ParseFloat(valStr, 64)
 		if err != nil {
 			return fmt.Errorf("%w: invalid floating-point value '%s' for flag '%s'", ErrInvalidValue, valStr, flagName)
@@ -373,6 +425,18 @@ func (p *Parser) assignVal(arg *cliArg, valStr, flagName string) error {
 			*ptr = nil
 		}
 		*ptr = append(*ptr, valStr)
+	case TypeIntList:
+		ptr := arg.target.(*[]int)
+		if !arg.isSet && arg.hasDefault {
+			*ptr = nil
+		}
+		*ptr = append(*ptr, intVal)
+	case TypeFloatList:
+		ptr := arg.target.(*[]float64)
+		if !arg.isSet && arg.hasDefault {
+			*ptr = nil
+		}
+		*ptr = append(*ptr, floatVal)
 	case TypeChar:
 		*(arg.target.(*byte)) = charVal
 	case TypeStr:
@@ -448,13 +512,13 @@ func (arg *cliArg) checkChoice(valStr string) bool {
 			if token == valStr {
 				return true
 			}
-		case TypeInt:
+		case TypeInt, TypeIntList:
 			cv, err1 := strconv.Atoi(token)
 			vv, err2 := strconv.Atoi(valStr)
 			if err1 == nil && err2 == nil && cv == vv {
 				return true
 			}
-		case TypeFloat:
+		case TypeFloat, TypeFloatList:
 			cv, err1 := strconv.ParseFloat(token, 64)
 			vv, err2 := strconv.ParseFloat(valStr, 64)
 			if err1 == nil && err2 == nil && cv == vv {
