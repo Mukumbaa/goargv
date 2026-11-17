@@ -29,6 +29,8 @@ const (
 	TypeStr
 	TypeRest
 	TypeStrList
+	TypeIntList
+	TypeFloatList
 )
 
 type ruleType int
@@ -54,6 +56,8 @@ type cliArg struct {
 	shortFlag    string
 	longFlag     string
 	help         string
+	placeholder  string
+	helpGroup    string
 	choices      string
 	choiceHelps  []cliChoiceHelp
 	envVar       string
@@ -69,16 +73,20 @@ type cliArg struct {
 }
 
 type Parser struct {
-	programName  string
-	version      string
-	versionShort string
-	versionExtra string
-	description  string
-	envPrefix    string
-	out          io.Writer
-	args         []*cliArg
-	rules        []cliRule
-	initErr      error
+	programName      string
+	version          string
+	versionShort     string
+	versionExtra     string
+	description      string
+	epilog           string
+	envPrefix        string
+	helpWidth        int
+	stopAtPositional bool
+	remainingArgs    []string
+	out              io.Writer
+	args             []*cliArg
+	rules            []cliRule
+	initErr          error
 }
 
 // New creates and initializes an argument parser for the given program name
@@ -133,6 +141,24 @@ func (p *Parser) SetDescription(desc string) {
 	p.description = strings.TrimSpace(desc)
 }
 
+// SetEpilog sets a trailing text block displayed at the end of help output
+func (p *Parser) SetEpilog(epilog string) {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	p.epilog = strings.TrimSpace(epilog)
+}
+
+// SetHelpWidth configures the description wrapping width in characters (0 = auto from COLUMNS or default 50)
+func (p *Parser) SetHelpWidth(width int) {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	if width < 0 {
+		width = 0
+	}
+	p.helpWidth = width
+}
 
 // SetVersion configures version details and enables the --version flag along with an optional short alias
 func (p *Parser) SetVersion(version, sh, extraInfo string) {
@@ -147,6 +173,24 @@ func (p *Parser) SetVersion(version, sh, extraInfo string) {
 		p.versionShort = ""
 	}
 }
+
+// SetStopAtPositional stops flag and help parsing at the first positional argument,
+// storing all trailing tokens in RemainingArgs
+func (p *Parser) SetStopAtPositional(stop bool) {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	p.stopAtPositional = stop
+}
+
+// RemainingArgs returns the unparsed trailing arguments captured after stopping at a positional argument
+func (p *Parser) RemainingArgs() []string {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	return p.remainingArgs
+}
+
 // normalizeShort ensures that a short flag begins with a single hyphen
 func normalizeShort(sh string) string {
 	sh = strings.TrimSpace(sh)
