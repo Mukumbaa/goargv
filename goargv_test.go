@@ -299,6 +299,203 @@ func TestDefaultDisplayEscapes(t *testing.T) {
 	}
 }
 
+func TestNewHelpFeaturesPlaceholderGroupEpilogWidth(t *testing.T) {
+	var pdf, fmtStr, target string
+	var ports []int
+	var out bytes.Buffer
+
+	p := New("gomdv")
+	p.SetOutput(&out)
+	p.SetDescription("Markdown viewer")
+	p.SetEpilog("  Examples:\n  gomdv README.md  ")
+	p.SetHelpWidth(35)
+
+	p.BindStr("o", "pdf", &pdf, false, "", "Export PDF")
+	p.BindStr("", "pdf-format", &fmtStr, false, "A4,Letter", "Page format with a long description to test width wrapping")
+	p.BindIntList("p", "port", &ports, false, "", "Ports")
+	p.BindPos("target", &target, false, "", "Target file")
+
+	if err := p.SetPlaceholder("pdf", "path"); err != nil {
+		t.Fatalf("SetPlaceholder failed: %v", err)
+	}
+	if err := p.SetPlaceholder("port", "<port>"); err != nil {
+		t.Fatalf("SetPlaceholder failed: %v", err)
+	}
+	if err := p.SetPlaceholder("target", "file"); err != nil {
+		t.Fatalf("SetPlaceholder failed: %v", err)
+	}
+	if err := p.SetHelpGroup("pdf", "PDF Options"); err != nil {
+		t.Fatalf("SetHelpGroup failed: %v", err)
+	}
+	if err := p.SetHelpGroup("pdf-format", "PDF Options:"); err != nil {
+		t.Fatalf("SetHelpGroup failed: %v", err)
+	}
+	if err := p.SetPlaceholder("missing", "x"); !errors.Is(err, ErrUnknownFlag) {
+		t.Fatalf("expected ErrUnknownFlag for missing placeholder, got %v", err)
+	}
+
+	pClean := New("gomdv")
+	pClean.SetOutput(&out)
+	pClean.SetDescription("Markdown viewer")
+	pClean.SetEpilog("Examples:\n  gomdv README.md")
+	pClean.BindStr("o", "pdf", &pdf, false, "", "Export PDF")
+	pClean.BindStr("", "pdf-format", &fmtStr, false, "A4,Letter", "Page format")
+	pClean.BindIntList("p", "port", &ports, false, "", "Ports")
+	pClean.BindPos("target", &target, false, "", "Target file")
+	_ = pClean.SetPlaceholder("pdf", "path")
+	_ = pClean.SetPlaceholder("port", "<port>")
+	_ = pClean.SetPlaceholder("target", "file")
+	_ = pClean.SetHelpGroup("pdf", "PDF Options")
+	_ = pClean.SetHelpGroup("pdf-format", "PDF Options:")
+
+	t.Setenv("COLUMNS", "80")
+	pClean.PrintHelp()
+	helpText := out.String()
+
+	checks := []string{
+		"Usage: gomdv [OPTIONS] [target <file>]",
+		"-p, --port <port>...",
+		"\nPDF Options:\n",
+		"  -o, --pdf <path>",
+		"Examples:\n  gomdv README.md",
+	}
+	for _, want := range checks {
+		if !strings.Contains(helpText, want) {
+			t.Fatalf("help output missing %q:\n%s", want, helpText)
+		}
+	}
+}
+
+func TestDuplicateFlagsPanicsAndBoolReset(t *testing.T) {
+	assertPanics := func(name string, fn func()) {
+		t.Helper()
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("%s: expected panic, got none", name)
+			}
+		}()
+		fn()
+	}
+
+	assertPanics("duplicate short", func() {
+		var a, b bool
+		p := New("app")
+		p.BindBool("a", "alpha", &a, "A")
+		p.BindBool("a", "other", &b, "B")
+	})
+
+	assertPanics("duplicate long", func() {
+		var a, b bool
+		p := New("app")
+		p.BindBool("a", "alpha", &a, "A")
+		p.BindBool("b", "alpha", &b, "B")
+	})
+
+	assertPanics("duplicate positional", func() {
+		var a, b string
+		p := New("app")
+		p.BindPos("file", &a, false, "", "A")
+		p.BindPos("file", &b, false, "", "B")
+	})
+
+	open := true
+	p := New("app")
+	p.BindBool("", "open", &open, "Open")
+
+	if err := p.Parse([]string{"--no-open"}); err != nil || open {
+		t.Fatalf("expected open=false after --no-open: err=%v open=%v", err, open)
+	}
+	if err := p.Parse([]string{}); err != nil || !open {
+		t.Fatalf("expected open=true reset on next Parse(): err=%v open=%v", err, open)
+	}
+}
+
+func TestIntAndFloatLists(t *testing.T) {
+	var ports []int
+	var scales []float64
+
+	p := New("app")
+	p.SetEnvPrefix("LISTAPP")
+	p.BindIntList("p", "port", &ports, false, "80, 443, 8080", "Ports")
+	p.BindFloatList("s", "scale", &scales, false, "", "Scales")
+	_ = p.SetDefault("port", "80")
+
+	if err := p.Parse([]string{}); err != nil || len(ports) != 1 || ports[0] != 80 {
+		t.Fatalf("expected default port [80]: err=%v ports=%v", err, ports)
+	}
+
+	t.Setenv("LISTAPP_SCALE", "1.25")
+	if err := p.Parse([]string{"-p", "443", "-p", "8080"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ports) != 2 || ports[0] != 443 || ports[1] != 8080 || len(scales) != 1 || scales[0] != 1.25 {
+		t.Fatalf("unexpected lists: ports=%v scales=%v", ports, scales)
+	}
+
+	if err := p.Parse([]string{"-p", "999"}); !errors.Is(err, ErrInvalidValue) {
+		t.Fatalf("expected ErrInvalidValue for invalid choice in IntList, got %v", err)
+	}
+	if err := p.Parse([]string{"-s", "bad_float"}); !errors.Is(err, ErrInvalidValue) {
+		t.Fatalf("expected ErrInvalidValue for invalid FloatList, got %v", err)
+	}
+}
+
+func TestStopAtPositionalSubcommands(t *testing.T) {
+	var verbose bool
+	var port int
+	var cmd, msg string
+	var rootOut, subOut bytes.Buffer
+
+	makeRoot := func() *Parser {
+		verbose = false
+		port = 0
+		cmd = ""
+		root := New("mytool")
+		root.SetOutput(&rootOut)
+		root.SetStopAtPositional(true)
+		root.BindBool("v", "verbose", &verbose, "Verbose")
+		root.BindInt("p", "port", &port, false, "", "Port")
+		root.BindPos("command", &cmd, true, "commit,clone", "Subcommand")
+		return root
+	}
+
+	rootOut.Reset()
+	r := makeRoot()
+	if err := r.Parse([]string{"-p", "8080", "--help"}); !errors.Is(err, ErrHelpRequested) {
+		t.Fatalf("expected ErrHelpRequested, got %v", err)
+	}
+	if !strings.Contains(rootOut.String(), "Usage: mytool [OPTIONS] <command") {
+		t.Fatalf("expected root help, got:\n%s", rootOut.String())
+	}
+
+	r = makeRoot()
+	if err := r.Parse([]string{"-p", "8080", "commit", "-m", "hello", "--help"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if port != 8080 || cmd != "commit" {
+		t.Fatalf("unexpected root values: port=%d cmd=%q", port, cmd)
+	}
+	rem := r.RemainingArgs()
+	if len(rem) != 3 || rem[0] != "-m" || rem[1] != "hello" || rem[2] != "--help" {
+		t.Fatalf("unexpected remaining args: %v", rem)
+	}
+
+	sub := New("mytool commit")
+	sub.SetOutput(&subOut)
+	sub.BindStr("m", "message", &msg, true, "", "Commit message")
+	if err := sub.Parse(rem); !errors.Is(err, ErrHelpRequested) {
+		t.Fatalf("expected sub ErrHelpRequested, got %v", err)
+	}
+	if !strings.Contains(subOut.String(), "Commit message") {
+		t.Fatalf("expected subcommand help, got:\n%s", subOut.String())
+	}
+
+	r = makeRoot()
+	if err := r.Parse([]string{"clone"}); err != nil || cmd != "clone" || len(r.RemainingArgs()) != 0 {
+		t.Fatalf("unexpected state for 'clone': err=%v cmd=%q rem=%v", err, cmd, r.RemainingArgs())
+	}
+}
+
 func FuzzParse(f *testing.F) {
 	f.Add("-h")
 	f.Add("--port=8080")
