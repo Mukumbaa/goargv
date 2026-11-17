@@ -353,7 +353,7 @@ func TestNewHelpFeaturesPlaceholderGroupEpilogWidth(t *testing.T) {
 	helpText := out.String()
 
 	checks := []string{
-		"Usage: gomdv [OPTIONS] [target <file>]",
+		"Usage: gomdv [OPTIONS] [file]",
 		"-p, --port <port>...",
 		"\nPDF Options:\n",
 		"  -o, --pdf <path>",
