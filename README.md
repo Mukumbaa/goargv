@@ -7,15 +7,16 @@ A zero-dependency command-line argument parser for Go with direct pointer bindin
 ## Features
 
 - **Standard library only**: Built strictly with Go standard library packages.
-- **Direct variable binding**: Binds directly to `*bool`, `*byte`, `*int`, `*float64`, `*string`, and `*[]string`.
+- **Direct variable binding**: Binds directly to `*bool`, `*byte`, `*int`, `*float64`, `*string`, `*[]string`, `*[]int`, and `*[]float64`.
 - **Explicit defaults**: Set initial variable values and help-screen tags via `SetDefault`.
-- **Validation**: Value whitelists (`choices`), mutual exclusion groups, and required flag dependencies.
+- **Validation**: Value whitelists (`choices`), mutual exclusion groups, required flag dependencies, and duplicate flag detection at bind time.
 - **POSIX & GNU syntax**: Short-flag clustering (`-xvf`), inline assignments (`--port=8080`), attached values (`-p8080`, `-p=8080`), negative numbers (`--offset -12`), and stdin/stdout markers (`-o -`).
 - **Standard `--` delimiter**: Unambiguously terminates flag parsing.
 - **Environment variables**: Automatic prefix-based resolution (`APP_PORT`) with support for explicit overrides.
 - **Typed sentinel errors**: Check failures with standard `errors.Is(err, goargv.ErrMutualExclusion)`.
-- **Repeatable flags**: Collect repeated option occurrences (like `-I dir1 -I dir2`) into string slices via `BindStrList`.
-- **Hidden arguments**: Mark internal or debug flags as hidden via `SetHidden` to omit them from help screens while keeping them fully functional.
+- **Repeatable flags**: Collect repeated option occurrences into slices via `BindStrList`, `BindIntList`, and `BindFloatList`.
+- **Clean subcommands**: Stop flag/help parsing at the first positional argument via `SetStopAtPositional` and forward `RemainingArgs()` to sub-parsers.
+- **Rich help customization**: Program description (`SetDescription`), epilog (`SetEpilog`), grouped option sections (`SetHelpGroup`), custom placeholders (`SetPlaceholder`), configurable/auto `COLUMNS` wrap width (`SetHelpWidth`), and hidden flags (`SetHidden`).
 - **Redirectable output**: Inject an arbitrary `io.Writer` via `SetOutput` for headless unit tests.
 
 ---
@@ -61,6 +62,8 @@ func main() {
 	)
 
 	p.SetVersion("1.2.0", "V", "Build 2026.1")
+	p.SetDescription("Fast data transformation and encryption utility.")
+	p.SetEpilog("Examples:\n  datax -f json -o out.json input.csv")
 	p.SetEnvPrefix("APP")
 
 	// Option flags
@@ -75,6 +78,12 @@ func main() {
 	p.BindBool("e", "encrypt", &encrypt, "Encrypt payload")
 	p.BindBool("", "plain", &plain, "Disable encryption")
 	p.BindStr("k", "key", &key, false, "", "Encryption key")
+
+	// Custom placeholders & help groups
+	_ = p.SetPlaceholder("output", "path")
+	_ = p.SetHelpGroup("encrypt", "Security Options")
+	_ = p.SetHelpGroup("plain", "Security Options")
+	_ = p.SetHelpGroup("key", "Security Options")
 
 	// Defaults (sets target value and registers help text)
 	_ = p.SetDefault("dry-run", "false")
@@ -141,12 +150,13 @@ func main() {
 
 ## Subcommands
 
-Multi-command programs can route positional subcommands to dedicated parsers:
+Multi-command CLIs can enable `SetStopAtPositional(true)` on the root parser so global flags are parsed up to the subcommand name, and all trailing flags (including `--help`) are forwarded intact via `RemainingArgs()`:
 
 ```go
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -154,40 +164,45 @@ import (
 )
 
 func main() {
-	var cmd string
+	var (
+		verbose bool
+		cmd     string
+	)
 
 	root := goargv.New("git")
+	root.SetStopAtPositional(true)
+	root.BindBool("v", "verbose", &verbose, "Enable verbose output")
 	root.BindPos("command", &cmd, true, "commit,clone", "Subcommand to run")
-	root.SetChoiceHelp("command", "commit", "Record repository changes")
-	root.SetChoiceHelp("command", "clone", "Clone remote repository")
+	_ = root.SetChoiceHelp("command", "commit", "Record repository changes")
+	_ = root.SetChoiceHelp("command", "clone", "Clone remote repository")
 
-	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" {
-		_ = root.Parse(os.Args[1:])
-		return
-	}
-
-	if err := root.Parse(os.Args[1:2]); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+	if err := root.Parse(os.Args[1:]); err != nil {
+		if errors.Is(err, goargv.ErrHelpRequested) || errors.Is(err, goargv.ErrVersionRequested) {
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "git: %v\n", err)
 		os.Exit(1)
 	}
 
-	subArgs := os.Args[2:]
 	switch cmd {
 	case "commit":
-		runCommit(subArgs)
+		runCommit(verbose, root.RemainingArgs())
 	}
 }
 
-func runCommit(args []string) {
+func runCommit(verbose bool, args []string) {
 	var message string
 	p := goargv.New("git commit")
 	p.BindStr("m", "message", &message, true, "", "Commit message")
 
 	if err := p.Parse(args); err != nil {
+		if errors.Is(err, goargv.ErrHelpRequested) {
+			os.Exit(0)
+		}
 		fmt.Fprintf(os.Stderr, "commit: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Committed: %s\n", message)
+	fmt.Printf("[verbose=%v] Committed: %s\n", verbose, message)
 }
 ```
 
@@ -203,6 +218,9 @@ func (p *Parser) SetOutput(w io.Writer)
 func (p *Parser) SetEnvPrefix(prefix string)
 func (p *Parser) SetVersion(version, sh, extraInfo string)
 func (p *Parser) SetDescription(desc string)
+func (p *Parser) SetEpilog(epilog string)
+func (p *Parser) SetHelpWidth(width int)
+func (p *Parser) SetStopAtPositional(stop bool)
 ```
 
 ### Option Binding
@@ -219,6 +237,8 @@ func (p *Parser) BindStr(sh, lng string, target *string, required bool, choices,
 func (p *Parser) BindPos(name string, target *string, required bool, choices, help string)
 func (p *Parser) BindRest(name string, target *[]string, required bool, choices, help string)
 func (p *Parser) BindStrList(sh, lng string, target *[]string, required bool, choices, help string)
+func (p *Parser) BindIntList(sh, lng string, target *[]int, required bool, choices, help string)
+func (p *Parser) BindFloatList(sh, lng string, target *[]float64, required bool, choices, help string)
 ```
 
 ### Defaults, Rules & Documentation
@@ -227,6 +247,8 @@ func (p *Parser) BindStrList(sh, lng string, target *[]string, required bool, ch
 func (p *Parser) SetDefault(flagOrName, defaultVal string) error
 func (p *Parser) SetEnv(flagOrName, envVar string) error
 func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error
+func (p *Parser) SetPlaceholder(flagOrName, placeholder string) error
+func (p *Parser) SetHelpGroup(flagOrName, group string) error
 func (p *Parser) SetHidden(flagOrName string) error
 func (p *Parser) AddExclusive(flagsGroup string)
 func (p *Parser) AddDependency(flag, requiresFlags string)
@@ -236,6 +258,7 @@ func (p *Parser) AddDependency(flag, requiresFlags string)
 
 ```go
 func (p *Parser) Parse(args []string) error
+func (p *Parser) RemainingArgs() []string
 func (p *Parser) PrintHelp()
 ```
 
