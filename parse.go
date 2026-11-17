@@ -73,7 +73,7 @@ func (p *Parser) Parse(args []string) error {
 		}
 		if p.stopAtPositional {
 			if token == "-h" || token == "--help" {
-				if i+1 < len(args) {
+				if i+1 < len(args) && args[i+1] != "--" {
 					scanEnd = i + 2
 				} else {
 					scanEnd = i + 1
