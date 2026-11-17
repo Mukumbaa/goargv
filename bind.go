@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// addArg registers an argument definition and checks that its target pointer is valid
+// addArg registers an argument definition and checks that its target pointer and flags are valid
 func (p *Parser) addArg(name, sh, lng string, t CliType, target any, required, isPos bool, choices, help string) {
 	if p == nil {
 		panic("goargv: Parser instance is nil")
@@ -25,6 +25,10 @@ func (p *Parser) addArg(name, sh, lng string, t CliType, target any, required, i
 			isNilTarget = (v == nil)
 		case *[]string:
 			isNilTarget = (v == nil)
+		case *[]int:
+			isNilTarget = (v == nil)
+		case *[]float64:
+			isNilTarget = (v == nil)
 		}
 	}
 	if isNilTarget {
@@ -37,21 +41,41 @@ func (p *Parser) addArg(name, sh, lng string, t CliType, target any, required, i
 		}
 		panic(fmt.Sprintf("goargv: target pointer for argument '%s' cannot be nil", displayName))
 	}
+
+	normSh := normalizeShort(sh)
+	normLng := normalizeLong(lng)
+
 	if isPos {
 		for _, a := range p.args {
 			if a.isPositional && a.argType == TypeRest {
 				panic(fmt.Sprintf("goargv: cannot bind positional argument '%s' after a rest argument", name))
 			}
+			if a.isPositional && name != "" && a.name == name {
+				panic(fmt.Sprintf("goargv: duplicate positional argument '%s'", name))
+			}
+		}
+	} else {
+		for _, a := range p.args {
+			if a.isPositional {
+				continue
+			}
+			if normSh != "" && a.shortFlag == normSh {
+				panic(fmt.Sprintf("goargv: duplicate short flag '%s'", normSh))
+			}
+			if normLng != "" && a.longFlag == normLng {
+				panic(fmt.Sprintf("goargv: duplicate long flag '%s'", normLng))
+			}
 		}
 	}
+
 	var defBool bool
 	if t == TypeBool {
 		defBool = *(target.(*bool))
 	}
 	p.args = append(p.args, &cliArg{
 		name:         name,
-		shortFlag:    normalizeShort(sh),
-		longFlag:     normalizeLong(lng),
+		shortFlag:    normSh,
+		longFlag:     normLng,
 		argType:      t,
 		target:       target,
 		defaultBool:  defBool,
@@ -147,6 +171,37 @@ func (p *Parser) BindStrList(sh, lng string, target *[]string, required bool, ch
 	p.addArg("", sh, lng, TypeStrList, target, required, false, choices, help)
 }
 
+// BindIntList binds a slice to collect repeated integer occurrences of a flag (e.g. -p 80 -p 443)
+func (p *Parser) BindIntList(sh, lng string, target *[]int, required bool, choices, help string) {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	if target == nil {
+		displayName := lng
+		if displayName == "" {
+			displayName = sh
+		}
+		panic(fmt.Sprintf("goargv: target pointer for flag '%s' cannot be nil", displayName))
+	}
+	*target = nil
+	p.addArg("", sh, lng, TypeIntList, target, required, false, choices, help)
+}
+
+// BindFloatList binds a slice to collect repeated float64 occurrences of a flag
+func (p *Parser) BindFloatList(sh, lng string, target *[]float64, required bool, choices, help string) {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	if target == nil {
+		displayName := lng
+		if displayName == "" {
+			displayName = sh
+		}
+		panic(fmt.Sprintf("goargv: target pointer for flag '%s' cannot be nil", displayName))
+	}
+	*target = nil
+	p.addArg("", sh, lng, TypeFloatList, target, required, false, choices, help)
+}
 
 // SetEnv binds a specific environment variable name to an existing argument or flag
 func (p *Parser) SetEnv(flagOrName, envVar string) error {
@@ -182,6 +237,40 @@ func (p *Parser) SetHidden(flagOrName string) error {
 	return nil
 }
 
+// SetPlaceholder sets a custom type placeholder label shown in help output (e.g. "path" -> <path>)
+func (p *Parser) SetPlaceholder(flagOrName, placeholder string) error {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	arg := p.findArg(flagOrName)
+	if arg == nil {
+		err := fmt.Errorf("%w: argument '%s' not found to set placeholder", ErrUnknownFlag, flagOrName)
+		if p.initErr == nil {
+			p.initErr = err
+		}
+		return err
+	}
+	arg.placeholder = strings.TrimSpace(placeholder)
+	return nil
+}
+
+// SetHelpGroup assigns an option to a named section in help output
+func (p *Parser) SetHelpGroup(flagOrName, group string) error {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	arg := p.findArg(flagOrName)
+	if arg == nil {
+		err := fmt.Errorf("%w: argument '%s' not found to set help group", ErrUnknownFlag, flagOrName)
+		if p.initErr == nil {
+			p.initErr = err
+		}
+		return err
+	}
+	arg.helpGroup = strings.TrimSpace(group)
+	return nil
+}
+
 // SetChoiceHelp assigns documentation to an individual choice option belonging to an argument
 func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error {
 	if p == nil {
@@ -206,7 +295,7 @@ func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error {
 
 	if !arg.choiceExists(choice) {
 		err := fmt.Errorf("%w: choice '%s' is not valid for argument '%s' (allowed: [%s])",
-		ErrInvalidValue, choice, arg.displayName(), arg.choices)
+			ErrInvalidValue, choice, arg.displayName(), arg.choices)
 		if p.initErr == nil {
 			p.initErr = err
 		}
