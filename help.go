@@ -68,6 +68,24 @@ func (p *Parser) printOptionHelp(a *cliArg, maxLen, descWidth int) {
 	}
 }
 
+func (a *cliArg) formatPositionalLabel() string {
+	if a.placeholder != "" {
+		ph := strings.TrimSuffix(strings.TrimPrefix(a.placeholder, "<"), ">")
+		if a.argType == TypeRest {
+			return ph + "..."
+		}
+		return ph
+	}
+	hint := a.formatTypeHint()
+	if a.choices == "" {
+		hint = ""
+	}
+	if a.argType == TypeRest {
+		return a.name + "..." + hint
+	}
+	return a.displayName() + hint
+}
+
 // PrintHelp outputs the full help message including usage, options, and positional arguments
 func (p *Parser) PrintHelp() {
 	if p == nil {
@@ -89,22 +107,11 @@ func (p *Parser) PrintHelp() {
 	fmt.Fprintf(p.out, "Usage: %s [OPTIONS]", prog)
 	for _, a := range p.args {
 		if a.isPositional && !a.isHidden {
-			hint := a.formatTypeHint()
-			if a.choices == "" && a.placeholder == "" {
-				hint = ""
-			}
-			if a.argType == TypeRest {
-				if a.required {
-					fmt.Fprintf(p.out, " <%s...%s>", a.name, hint)
-				} else {
-					fmt.Fprintf(p.out, " [%s...%s]", a.name, hint)
-				}
+			label := a.formatPositionalLabel()
+			if a.required {
+				fmt.Fprintf(p.out, " <%s>", label)
 			} else {
-				if a.required {
-					fmt.Fprintf(p.out, " <%s%s>", a.name, hint)
-				} else {
-					fmt.Fprintf(p.out, " [%s%s]", a.name, hint)
-				}
+				fmt.Fprintf(p.out, " [%s]", label)
 			}
 		}
 	}
@@ -183,17 +190,7 @@ func (p *Parser) PrintHelp() {
 			if !a.isPositional || a.isHidden {
 				continue
 			}
-			name := a.displayName()
-			hint := a.formatTypeHint()
-			if a.choices == "" && a.placeholder == "" {
-				hint = ""
-			}
-			var buf string
-			if a.argType == TypeRest {
-				buf = fmt.Sprintf("  <%s...%s>", name, hint)
-			} else {
-				buf = fmt.Sprintf("  <%s%s>", name, hint)
-			}
+			buf := fmt.Sprintf("  <%s>", a.formatPositionalLabel())
 			reqStr := ""
 			if a.required {
 				reqStr = " [required]"
