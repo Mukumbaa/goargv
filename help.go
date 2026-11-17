@@ -3,10 +3,70 @@ package goargv
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
+
+func (p *Parser) getDescWidth(leftColWidth int) int {
+	if p.helpWidth > 0 {
+		return p.helpWidth
+	}
+	if colsStr := os.Getenv("COLUMNS"); colsStr != "" {
+		if cols, err := strconv.Atoi(strings.TrimSpace(colsStr)); err == nil && cols > 0 {
+			avail := cols - leftColWidth
+			if avail < 30 {
+				avail = 30
+			}
+			return avail
+		}
+	}
+	return 50
+}
+
+func (p *Parser) printOptionHelp(a *cliArg, maxLen, descWidth int) {
+	longDisp := a.formatLongDisplay()
+	var buf string
+	if a.shortFlag != "" && longDisp != "" {
+		buf = fmt.Sprintf("  %s, %s", a.shortFlag, longDisp)
+	} else if a.shortFlag != "" {
+		buf = fmt.Sprintf("  %s", a.shortFlag)
+	} else if longDisp != "" {
+		buf = fmt.Sprintf("      %s", longDisp)
+	}
+	buf += a.formatTypeHint()
+
+	reqStr := ""
+	if a.required {
+		reqStr = " [required]"
+	}
+	defStr := ""
+	if a.hasDefault {
+		defStr = fmt.Sprintf(" [default: %s]", formatDefaultDisplay(a.defaultVal))
+	}
+	envStr := ""
+	effEnv := p.getEffectiveEnv(a)
+	if effEnv != "" {
+		envStr = fmt.Sprintf(" [env: %s]", effEnv)
+	}
+
+	fullDesc := fmt.Sprintf("%s%s%s%s", a.help, reqStr, defStr, envStr)
+	printWrappedDesc(p.out, buf, maxLen, 2, fullDesc, descWidth)
+
+	if len(a.choiceHelps) > 0 {
+		for _, ch := range a.choiceHelps {
+			prefix := fmt.Sprintf("%*s  %s:", maxLen, "", ch.choice)
+			choiceIndent := utf8.RuneCountInString(prefix)
+			helpWidth := descWidth - 6
+			if helpWidth < 30 {
+				helpWidth = 30
+			}
+			printWrappedDesc(p.out, prefix, choiceIndent, 1, ch.help, helpWidth)
+		}
+	}
+}
 
 // PrintHelp outputs the full help message including usage, options, and positional arguments
 func (p *Parser) PrintHelp() {
@@ -17,7 +77,6 @@ func (p *Parser) PrintHelp() {
 	if prog == "" || prog == "." {
 		prog = "program"
 	}
-	descWidth := 50
 
 	if p.version != "" {
 		fmt.Fprintf(p.out, "%s v%s\n\n", prog, p.version)
@@ -31,7 +90,7 @@ func (p *Parser) PrintHelp() {
 	for _, a := range p.args {
 		if a.isPositional && !a.isHidden {
 			hint := a.formatTypeHint()
-			if a.choices == "" {
+			if a.choices == "" && a.placeholder == "" {
 				hint = ""
 			}
 			if a.argType == TypeRest {
@@ -71,6 +130,8 @@ func (p *Parser) PrintHelp() {
 		}
 	}
 
+	descWidth := p.getDescWidth(maxLen + 2)
+
 	fmt.Fprintln(p.out, "Options:")
 	printWrappedDesc(p.out, "  -h, --help", maxLen, 2, "Display this help message", descWidth)
 
@@ -84,47 +145,26 @@ func (p *Parser) PrintHelp() {
 		printWrappedDesc(p.out, vBuf, maxLen, 2, "Display version information", descWidth)
 	}
 
+	var groups []string
+	seenGroup := make(map[string]bool)
+
 	for _, a := range p.args {
 		if a.isPositional || a.isHidden {
 			continue
 		}
-		longDisp := a.formatLongDisplay()
-		var buf string
-		if a.shortFlag != "" && longDisp != "" {
-			buf = fmt.Sprintf("  %s, %s", a.shortFlag, longDisp)
-		} else if a.shortFlag != "" {
-			buf = fmt.Sprintf("  %s", a.shortFlag)
-		} else if longDisp != "" {
-			buf = fmt.Sprintf("      %s", longDisp)
+		if a.helpGroup == "" {
+			p.printOptionHelp(a, maxLen, descWidth)
+		} else if !seenGroup[a.helpGroup] {
+			seenGroup[a.helpGroup] = true
+			groups = append(groups, a.helpGroup)
 		}
-		buf += a.formatTypeHint()
+	}
 
-		reqStr := ""
-		if a.required {
-			reqStr = " [required]"
-		}
-		defStr := ""
-		if a.hasDefault {
-			defStr = fmt.Sprintf(" [default: %s]", formatDefaultDisplay(a.defaultVal))
-		}
-		envStr := ""
-		effEnv := p.getEffectiveEnv(a)
-		if effEnv != "" {
-			envStr = fmt.Sprintf(" [env: %s]", effEnv)
-		}
-
-		fullDesc := fmt.Sprintf("%s%s%s%s", a.help, reqStr, defStr, envStr)
-		printWrappedDesc(p.out, buf, maxLen, 2, fullDesc, descWidth)
-
-		if len(a.choiceHelps) > 0 {
-			for _, ch := range a.choiceHelps {
-				prefix := fmt.Sprintf("%*s  %s:", maxLen, "", ch.choice)
-				choiceIndent := utf8.RuneCountInString(prefix)
-				helpWidth := descWidth - 6
-				if helpWidth < 30 {
-					helpWidth = 30
-				}
-				printWrappedDesc(p.out, prefix, choiceIndent, 1, ch.help, helpWidth)
+	for _, grp := range groups {
+		fmt.Fprintf(p.out, "\n%s:\n", strings.TrimSuffix(grp, ":"))
+		for _, a := range p.args {
+			if !a.isPositional && !a.isHidden && a.helpGroup == grp {
+				p.printOptionHelp(a, maxLen, descWidth)
 			}
 		}
 	}
@@ -145,7 +185,7 @@ func (p *Parser) PrintHelp() {
 			}
 			name := a.displayName()
 			hint := a.formatTypeHint()
-			if a.choices == "" {
+			if a.choices == "" && a.placeholder == "" {
 				hint = ""
 			}
 			var buf string
@@ -184,6 +224,10 @@ func (p *Parser) PrintHelp() {
 			}
 		}
 	}
+
+	if p.epilog != "" {
+		fmt.Fprintf(p.out, "\n%s\n", p.epilog)
+	}
 }
 
 // printSingleHelp prints a detailed view of a single argument's configuration and choices
@@ -191,7 +235,7 @@ func (p *Parser) printSingleHelp(arg *cliArg) {
 	if p == nil {
 		panic("goargv: Parser instance is nil")
 	}
-	descWidth := 50
+	descWidth := p.getDescWidth(23)
 
 	effEnv := p.getEffectiveEnv(arg)
 
@@ -312,6 +356,16 @@ func printWrappedDesc(w io.Writer, leftCol string, indent int, gutter int, text 
 
 // formatTypeHint renders the CLI usage placeholder or choice summary for the argument
 func (arg *cliArg) formatTypeHint() string {
+	if arg.placeholder != "" {
+		ph := arg.placeholder
+		if !strings.HasPrefix(ph, "<") && !strings.HasPrefix(ph, "{") && !strings.HasPrefix(ph, "[") {
+			ph = "<" + ph + ">"
+		}
+		if arg.argType == TypeStrList || arg.argType == TypeIntList || arg.argType == TypeFloatList {
+			return " " + ph + "..."
+		}
+		return " " + ph
+	}
 	if arg.choices != "" && len(arg.choiceHelps) < arg.countChoices() {
 		return fmt.Sprintf(" {%s}", arg.choices)
 	}
@@ -322,8 +376,12 @@ func (arg *cliArg) formatTypeHint() string {
 		return " <str>..."
 	case TypeInt:
 		return " <int>"
+	case TypeIntList:
+		return " <int>..."
 	case TypeFloat:
 		return " <num>"
+	case TypeFloatList:
+		return " <num>..."
 	case TypeChar:
 		return " <char>"
 	case TypeRest:
