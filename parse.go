@@ -238,6 +238,9 @@ func (p *Parser) Parse(args []string) error {
 			if matched.argType == TypeBool {
 				val := true
 				if isNegated {
+					if hasInline {
+						return fmt.Errorf("%w: negated boolean flag '%s' does not accept a value", ErrInvalidValue, flagName)
+					}
 					val = false
 				} else if hasInline {
 					lower := strings.ToLower(inlineVal)
@@ -256,6 +259,9 @@ func (p *Parser) Parse(args []string) error {
 			}
 
 			if matched.argType == TypeCount {
+				if hasInline {
+					return fmt.Errorf("%w: counter flag '%s' does not accept a value", ErrInvalidValue, flagName)
+				}
 				*(matched.target.(*int))++
 				matched.isSet = true
 				continue
