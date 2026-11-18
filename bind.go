@@ -55,6 +55,20 @@ func (p *Parser) addArg(name, sh, lng string, t CliType, target any, required, i
 			}
 		}
 	} else {
+		if normSh == "-h" {
+			panic("goargv: flag '-h' conflicts with reserved help flag '-h'")
+		}
+		if normLng == "--help" {
+			panic("goargv: flag '--help' conflicts with reserved help flag '--help'")
+		}
+		if p.version != "" {
+			if p.versionShort != "" && normSh == p.versionShort {
+				panic(fmt.Sprintf("goargv: flag '%s' conflicts with reserved version short flag '%s'", normSh, p.versionShort))
+			}
+			if normLng == "--version" {
+				panic("goargv: flag '--version' conflicts with reserved version flag '--version'")
+			}
+		}
 		for _, a := range p.args {
 			if a.isPositional {
 				continue
@@ -295,7 +309,7 @@ func (p *Parser) SetChoiceHelp(flagOrName, choice, help string) error {
 
 	if !arg.choiceExists(choice) {
 		err := fmt.Errorf("%w: choice '%s' is not valid for argument '%s' (allowed: [%s])",
-			ErrInvalidValue, choice, arg.displayName(), arg.choices)
+		ErrInvalidValue, choice, arg.displayName(), arg.choices)
 		if p.initErr == nil {
 			p.initErr = err
 		}
