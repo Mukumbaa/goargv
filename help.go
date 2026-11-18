@@ -76,9 +76,9 @@ func (a *cliArg) formatPositionalLabel() string {
 		}
 		return ph
 	}
-	hint := a.formatTypeHint()
-	if a.choices == "" {
-		hint = ""
+	hint := ""
+	if a.choices != "" && len(a.choiceHelps) < a.countChoices() {
+		hint = fmt.Sprintf(" {%s}", a.choices)
 	}
 	if a.argType == TypeRest {
 		return a.name + "..." + hint
