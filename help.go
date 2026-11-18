@@ -450,3 +450,4 @@ func (arg *cliArg) countChoices() int {
 	}
 	return len(splitTokens(arg.choices))
 }
+
