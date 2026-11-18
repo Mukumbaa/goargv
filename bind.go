@@ -398,3 +398,14 @@ func (p *Parser) AddDependency(flag, requiresFlags string) {
 		requires: requiresFlags,
 	})
 }
+
+// AddAnyOf requires at least one flag from the group (separated by commas or pipes) to be provided
+func (p *Parser) AddAnyOf(flagsGroup string) {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	p.rules = append(p.rules, cliRule{
+		ruleType: ruleAnyOf,
+		target:   flagsGroup,
+	})
+}
