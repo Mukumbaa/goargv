@@ -38,6 +38,7 @@ type ruleType int
 const (
 	ruleExclusive ruleType = iota
 	ruleDependency
+	ruleAnyOf
 )
 
 type cliRule struct {
