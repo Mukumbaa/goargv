@@ -496,6 +496,167 @@ func TestStopAtPositionalSubcommands(t *testing.T) {
 	}
 }
 
+func TestIsSetAndAddAnyOf(t *testing.T) {
+	var port, id int
+	var email, target string
+
+	p := New("app")
+	p.SetEnvPrefix("ANYAPP")
+	p.BindInt("p", "port", &port, false, "", "Port")
+	p.BindInt("i", "id", &id, false, "", "ID")
+	p.BindStr("e", "email", &email, false, "", "Email")
+	p.BindPos("target", &target, false, "", "Target")
+
+	_ = p.SetDefault("port", "8080")
+	p.AddExclusive("id, email")
+	p.AddAnyOf("id, email")
+
+	if err := p.Parse([]string{}); !errors.Is(err, ErrMissingRequired) {
+		t.Fatalf("expected ErrMissingRequired when neither id nor email is set, got %v", err)
+	}
+
+	if err := p.Parse([]string{"--id", "42", "user1"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if port != 8080 || p.IsSet("port") || p.IsSet("-p") {
+		t.Fatalf("default port should not report IsSet=true: port=%d isSet=%v", port, p.IsSet("port"))
+	}
+	if !p.IsSet("id") || !p.IsSet("-i") || p.IsSet("email") || !p.IsSet("target") || p.IsSet("missing") {
+		t.Fatalf("unexpected IsSet states: id=%v email=%v target=%v missing=%v",
+			p.IsSet("id"), p.IsSet("email"), p.IsSet("target"), p.IsSet("missing"))
+	}
+
+	if err := p.Parse([]string{"-p", "8080", "--email", "a@b.com"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !p.IsSet("port") || !p.IsSet("--email") || p.IsSet("target") {
+		t.Fatalf("expected explicit port and email IsSet=true, target=false")
+	}
+
+	t.Setenv("ANYAPP_ID", "7")
+	if err := p.Parse([]string{}); err != nil || id != 7 || !p.IsSet("id") || p.IsSet("port") {
+		t.Fatalf("expected env var to satisfy AddAnyOf and set IsSet: err=%v id=%d", err, id)
+	}
+
+	if err := p.Parse([]string{"--email", "a@b.com"}); !errors.Is(err, ErrMutualExclusion) {
+		t.Fatalf("expected ErrMutualExclusion across env+CLI, got %v", err)
+	}
+
+	pBad := New("app")
+	var ok bool
+	pBad.BindBool("o", "ok", &ok, "OK")
+	pBad.AddAnyOf("ok, ghost")
+	if err := pBad.Parse([]string{"-h"}); !errors.Is(err, ErrUnknownFlag) {
+		t.Fatalf("expected ErrUnknownFlag for invalid AddAnyOf rule, got %v", err)
+	}
+}
+
+func TestInlineErrorsOnNegatedBoolAndCount(t *testing.T) {
+	open := true
+	verbose := 0
+
+	p := New("app")
+	p.BindBool("o", "open", &open, "Open")
+	p.BindCount("v", "verbose", &verbose, "Verbose")
+
+	for _, arg := range []string{"--no-open=true", "--no-open=false", "--no-open=bad", "--verbose=2", "--verbose=abc"} {
+		if err := p.Parse([]string{arg}); !errors.Is(err, ErrInvalidValue) {
+			t.Fatalf("%q: expected ErrInvalidValue, got %v", arg, err)
+		}
+	}
+}
+
+func TestPositionalAndRestLabelsWithChoiceHelp(t *testing.T) {
+	var cmd string
+	var files []string
+	var out bytes.Buffer
+
+	p := New("git")
+	p.SetOutput(&out)
+	p.BindPos("command", &cmd, true, "commit,clone", "Command")
+	p.BindRest("files", &files, false, "a,b", "Files")
+	_ = p.SetChoiceHelp("command", "commit", "Commit")
+	_ = p.SetChoiceHelp("command", "clone", "Clone")
+	_ = p.SetChoiceHelp("files", "a", "File A")
+	_ = p.SetChoiceHelp("files", "b", "File B")
+
+	p.PrintHelp()
+	helpText := out.String()
+
+	if !strings.Contains(helpText, "Usage: git [OPTIONS] <command> [files...]") {
+		t.Fatalf("unexpected usage line:\n%s", helpText)
+	}
+	if strings.Contains(helpText, "<command <str>>") || strings.Contains(helpText, "files......") {
+		t.Fatalf("found malformed positional/rest label:\n%s", helpText)
+	}
+}
+
+func TestReservedFlagConflictsPanics(t *testing.T) {
+	assertPanics := func(name string, fn func()) {
+		t.Helper()
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("%s: expected panic, got none", name)
+			}
+		}()
+		fn()
+	}
+
+	assertPanics("bind -h", func() {
+		var f bool
+		p := New("app")
+		p.BindBool("h", "host", &f, "Host")
+	})
+
+	assertPanics("bind --help", func() {
+		var f bool
+		p := New("app")
+		p.BindBool("H", "help", &f, "Help")
+	})
+
+	assertPanics("setVersion then bind -v", func() {
+		var f bool
+		p := New("app")
+		p.SetVersion("1.0", "v", "")
+		p.BindBool("v", "verbose", &f, "Verbose")
+	})
+
+	assertPanics("setVersion then bind --version", func() {
+		var f bool
+		p := New("app")
+		p.SetVersion("1.0", "V", "")
+		p.BindBool("", "version", &f, "Version")
+	})
+
+	assertPanics("bind -v then setVersion -v", func() {
+		var f bool
+		p := New("app")
+		p.BindBool("v", "verbose", &f, "Verbose")
+		p.SetVersion("1.0", "v", "")
+	})
+
+	assertPanics("bind --version then setVersion", func() {
+		var f bool
+		p := New("app")
+		p.BindBool("", "version", &f, "Version")
+		p.SetVersion("1.0", "V", "")
+	})
+
+	assertPanics("setVersion -h", func() {
+		p := New("app")
+		p.SetVersion("1.0", "h", "")
+	})
+
+	// Positionals named "help" or "version" must still be allowed
+	var pHelp, pVer string
+	p := New("app")
+	p.SetVersion("1.0", "V", "")
+	p.BindPos("help", &pHelp, false, "", "Help topic")
+	p.BindPos("version", &pVer, false, "", "Version target")
+	if err := p.Parse([]string{"topic", "v2"}); err != nil || pHelp != "topic" || pVer != "v2" {
+		t.Fatalf("positional help/version failed: err=%v pHelp=%q pVer=%q", err, pHelp, pVer)
+	}
+}
 func FuzzParse(f *testing.F) {
 	f.Add("-h")
 	f.Add("--port=8080")
