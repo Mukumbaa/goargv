@@ -44,11 +44,15 @@ func (p *Parser) Parse(args []string) error {
 	}
 
 	for _, rule := range p.rules {
-		if rule.ruleType == ruleExclusive {
+		if rule.ruleType == ruleExclusive || rule.ruleType == ruleAnyOf {
+			ruleKind := "exclusive"
+			if rule.ruleType == ruleAnyOf {
+				ruleKind = "any-of"
+			}
 			tokens := splitTokens(rule.target)
 			for _, tok := range tokens {
 				if p.findArg(tok) == nil {
-					return fmt.Errorf("%w: unknown flag '%s' defined in exclusive rule [%s]", ErrUnknownFlag, tok, rule.target)
+					return fmt.Errorf("%w: unknown flag '%s' defined in %s rule [%s]", ErrUnknownFlag, tok, ruleKind, rule.target)
 				}
 			}
 		} else if rule.ruleType == ruleDependency {
@@ -356,6 +360,20 @@ func (p *Parser) Parse(args []string) error {
 					}
 				}
 			}
+		} else if rule.ruleType == ruleAnyOf {
+			tokens := splitTokens(rule.target)
+			if len(tokens) > 0 {
+				anySet := false
+				for _, tok := range tokens {
+					if a := p.findArg(tok); a != nil && a.isSet {
+						anySet = true
+						break
+					}
+				}
+				if !anySet {
+					return fmt.Errorf("%w: at least one flag in group [%s] must be set", ErrMissingRequired, rule.target)
+				}
+			}
 		}
 	}
 
@@ -481,6 +499,17 @@ func (p *Parser) findArg(ident string) *cliArg {
 		}
 	}
 	return nil
+}
+
+// IsSet reports whether the flag or positional argument was explicitly provided via CLI or environment variable
+func (p *Parser) IsSet(flagOrName string) bool {
+	if p == nil {
+		panic("goargv: Parser instance is nil")
+	}
+	if a := p.findArg(flagOrName); a != nil {
+		return a.isSet
+	}
+	return false
 }
 
 // findFlag retrieves a registered non-positional argument matching the flag string
