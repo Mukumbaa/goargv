@@ -9,7 +9,8 @@ A zero-dependency command-line argument parser for Go with direct pointer bindin
 - **Standard library only**: Built strictly with Go standard library packages.
 - **Direct variable binding**: Binds directly to `*bool`, `*byte`, `*int`, `*float64`, `*string`, `*[]string`, `*[]int`, and `*[]float64`.
 - **Explicit defaults**: Set initial variable values and help-screen tags via `SetDefault`.
-- **Validation**: Value whitelists (`choices`), mutual exclusion groups, required flag dependencies, and duplicate flag detection at bind time.
+- **Explicit presence check**: Query whether an argument was supplied via CLI or environment variable using `IsSet`.
+- **Validation**: Value whitelists (`choices`), mutual exclusion groups (`AddExclusive`), at-least-one groups (`AddAnyOf`), required flag dependencies (`AddDependency`), and duplicate flag detection at bind time.
 - **POSIX & GNU syntax**: Short-flag clustering (`-xvf`), inline assignments (`--port=8080`), attached values (`-p8080`, `-p=8080`), negative numbers (`--offset -12`), and stdin/stdout markers (`-o -`).
 - **Standard `--` delimiter**: Unambiguously terminates flag parsing.
 - **Environment variables**: Automatic prefix-based resolution (`APP_PORT`) with support for explicit overrides.
@@ -125,7 +126,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Input: %s, Port: %d, Mode: %c, Output: %s\n", inputFile, port, mode, output)
+	fmt.Printf("Input: %s, Port: %d (explicit: %v), Mode: %c, Output: %s\n",
+		inputFile, port, p.IsSet("port"), mode, output)
 }
 ```
 
@@ -252,12 +254,14 @@ func (p *Parser) SetHelpGroup(flagOrName, group string) error
 func (p *Parser) SetHidden(flagOrName string) error
 func (p *Parser) AddExclusive(flagsGroup string)
 func (p *Parser) AddDependency(flag, requiresFlags string)
+func (p *Parser) AddAnyOf(flagsGroup string)
 ```
 
 ### Parsing
 
 ```go
 func (p *Parser) Parse(args []string) error
+func (p *Parser) IsSet(flagOrName string) bool
 func (p *Parser) RemainingArgs() []string
 func (p *Parser) PrintHelp()
 ```
