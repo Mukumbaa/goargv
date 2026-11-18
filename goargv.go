@@ -165,13 +165,29 @@ func (p *Parser) SetVersion(version, sh, extraInfo string) {
 	if p == nil {
 		panic("goargv: Parser instance is nil")
 	}
+	var normSh string
+	if strings.TrimSpace(sh) != "" {
+		normSh = normalizeShort(sh)
+	}
+	if version != "" {
+		if normSh == "-h" {
+			panic("goargv: version short flag '-h' conflicts with reserved help flag '-h'")
+		}
+		for _, a := range p.args {
+			if a.isPositional {
+				continue
+			}
+			if normSh != "" && a.shortFlag == normSh {
+				panic("goargv: version short flag '" + normSh + "' conflicts with already bound flag")
+			}
+			if a.longFlag == "--version" {
+				panic("goargv: version flag '--version' conflicts with already bound flag")
+			}
+		}
+	}
 	p.version = version
 	p.versionExtra = extraInfo
-	if strings.TrimSpace(sh) != "" {
-		p.versionShort = normalizeShort(sh)
-	} else {
-		p.versionShort = ""
-	}
+	p.versionShort = normSh
 }
 
 // SetStopAtPositional stops flag and help parsing at the first positional argument,
